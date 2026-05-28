@@ -1,17 +1,25 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
-  --bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--card:#21262d;--card2:#30363d;
-  --border:#30363d;--border2:#484f58;
-  --green:#3fb950;--greenbg:#0d2a13;--greentxt:#56d364;
-  --amber:#d29922;--amberbg:#2d1f00;--ambertxt:#e3b341;
-  --red:#f85149;--redbg:#2d0f0e;--redtxt:#ff7b72;
-  --blue:#58a6ff;--bluebg:#0c2233;--bluetxt:#79c0ff;
-  --purple:#bc8cff;--purplebg:#251e3a;
-  --text:#c9d1d9;--text2:#8b949e;--text3:#484f58;
+  /* Fundo principal e níveis */
+  --bg:#0F1408;--bg2:#1A2110;--bg3:#222B16;--card:#2A341C;--card2:#384426;
+  --border:#3D4A2A;--border2:#566638;
+
+  /* Verde principal (paleta da empresa) */
+  --green:#88B257;--greenbg:#1F2B14;--greentxt:#A8C97A;
+
+  /* Acentos terrosos que harmonizam com verde */
+  --amber:#D4B85A;--amberbg:#2E2710;--ambertxt:#E0CB6F;
+  --red:#C97B5A;--redbg:#2E1A10;--redtxt:#E09578;
+  --blue:#6A8FA8;--bluebg:#152028;--bluetxt:#8FAEC2;
+  --purple:#A89570;--purplebg:#241F14;
+
+  /* Textos com bom contraste sobre fundo escuro */
+  --text:#F5F7F0;--text2:#C5CDB5;--text3:#8B9678;
+
   --r:8px;--r2:12px;
   --font:system-ui,-apple-system,sans-serif;--mono:'SF Mono',Consolas,monospace;
 }
-body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;min-height:100vh;overscroll-behavior:none}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;min-height:100vh;overscroll-behavior:none;font-weight:500}
 .app{display:flex;flex-direction:column;min-height:100vh;max-width:480px;margin:0 auto}
 
 /* TOPBAR */
@@ -19,9 +27,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 .tb-left{display:flex;align-items:center;gap:8px}
 .tb-dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;animation:blink 2.5s infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-.tb-title{font-size:14px;font-weight:600}
-.tb-sub{font-size:11px;color:var(--text3);margin-top:1px}
-.tb-badge{font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;background:var(--redbg);color:var(--redtxt)}
+.tb-title{font-size:14px;font-weight:700}
+.tb-sub{font-size:11px;color:var(--text3);margin-top:1px;font-weight:500}
+.tb-badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;background:var(--redbg);color:var(--redtxt)}
 
 /* NAV */
 .nav{display:flex;background:var(--bg2);border-top:1px solid var(--border);position:sticky;bottom:0;z-index:50}
@@ -52,9 +60,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:13px;margin-bottom:8px;cursor:pointer;transition:border-color .12s;touch-action:manipulation}
 .card:active{border-color:var(--border2);background:var(--card2)}
 .ch{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
-.cid{font-family:var(--mono);font-size:11px;color:var(--blue);font-weight:500}
-.ccli{font-size:14px;font-weight:600;margin-top:1px}
-.cprod{font-size:12px;color:var(--text2);margin-top:2px}
+.cid{font-family:var(--mono);font-size:11px;color:var(--greentxt);font-weight:700}
+.ccli{font-size:14px;font-weight:700;margin-top:1px;color:var(--text)}
+.cprod{font-size:12px;color:var(--text2);margin-top:2px;font-weight:500}
 .cf{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 
 /* PROGRESS */
@@ -94,11 +102,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 /* BUTTONS */
 .btn{width:100%;padding:13px;border:none;border-radius:var(--r2);font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s;touch-action:manipulation}
 .btn:active{opacity:.8}
-.btn-g{background:var(--green);color:#0a1f0c}
-.btn-b{background:var(--blue);color:#0a1624}
+.btn-g{background:var(--green);color:#0F1408;font-weight:700}
+.btn-b{background:var(--blue);color:#0F1408;font-weight:700}
 .btn-s{background:var(--card);border:1px solid var(--border);color:var(--text);margin-top:8px}
-.btn-novo{display:flex;align-items:center;gap:5px;background:var(--green);border:none;border-radius:var(--r2);color:#0a1f0c;font-family:var(--font);font-size:12px;font-weight:700;padding:6px 14px;cursor:pointer;touch-action:manipulation;white-space:nowrap}
-.btn-xl{background:var(--card);border:2px solid var(--green);color:var(--greentxt);display:flex;align-items:center;justify-content:center;gap:10px;font-size:15px;padding:16px}
+.btn-novo{display:flex;align-items:center;gap:5px;background:var(--green);border:none;border-radius:var(--r2);color:#0F1408;font-family:var(--font);font-size:12px;font-weight:700;padding:6px 14px;cursor:pointer;touch-action:manipulation;white-space:nowrap}
+.btn-xl{background:var(--card);border:2px solid var(--green);color:var(--greentxt);display:flex;align-items:center;justify-content:center;gap:10px;font-size:15px;padding:16px;font-weight:700}
 
 /* DASHBOARD */
 .mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
@@ -253,14 +261,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
   .nav::before{
     content:"AMZP";
     display:block;
-    font-size:18px;
+    font-size:20px;
     font-weight:800;
-    color:var(--bluetxt);
     padding:8px 14px 20px;
     letter-spacing:.04em;
     border-bottom:1px solid var(--border);
     margin-bottom:14px;
-    background:linear-gradient(135deg,var(--blue),var(--green));
+    background:linear-gradient(135deg,#88B257,#A8C97A);
     -webkit-background-clip:text;
     background-clip:text;
     -webkit-text-fill-color:transparent;
