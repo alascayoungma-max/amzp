@@ -213,42 +213,46 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 @media (min-width: 1024px) {
   body{font-size:14px}
 
+  /* App ocupa tela toda, sem max-width */
   .app{
     max-width:none;
-    flex-direction:row;
+    width:100%;
+    flex-direction:column;
     min-height:100vh;
+    padding-left:240px;
   }
 
-  /* SIDEBAR — substitui o nav inferior */
+  /* SIDEBAR fixa à esquerda */
   .nav{
     position:fixed;
     top:0;
     left:0;
     bottom:0;
-    width:220px;
+    width:240px;
     flex-direction:column;
     border-top:none;
     border-right:1px solid var(--border);
-    padding:24px 12px;
+    padding:24px 14px;
     gap:4px;
     z-index:100;
+    background:var(--bg2);
   }
   .nb{
     flex:none;
     flex-direction:row;
     justify-content:flex-start;
     gap:12px;
-    padding:11px 14px;
-    font-size:13px;
-    font-weight:500;
+    padding:12px 16px;
+    font-size:14px;
+    font-weight:600;
     border-radius:10px;
     border-top:none;
     width:100%;
     text-align:left;
   }
   .nb.on{
-    background:var(--bluebg);
-    color:var(--bluetxt);
+    background:var(--greenbg);
+    color:var(--greentxt);
     border-top:none;
   }
   .nb:hover:not(.on){
@@ -261,45 +265,62 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
   .nav::before{
     content:"AMZP";
     display:block;
-    font-size:20px;
+    font-size:22px;
     font-weight:800;
-    padding:8px 14px 20px;
+    padding:8px 16px 22px;
     letter-spacing:.04em;
     border-bottom:1px solid var(--border);
-    margin-bottom:14px;
+    margin-bottom:18px;
     background:linear-gradient(135deg,#88B257,#A8C97A);
     -webkit-background-clip:text;
     background-clip:text;
     -webkit-text-fill-color:transparent;
   }
 
-  /* Container principal */
+  /* Topbar ocupa tudo no topo, sem margin */
   .topbar{
-    margin-left:220px;
-    padding:16px 28px;
-  }
-  .scr{
-    margin-left:220px;
-    padding:24px 28px 28px;
-    padding-bottom:28px;
+    margin-left:0;
+    padding:18px 32px;
+    background:var(--bg2);
+    border-bottom:1px solid var(--border);
   }
 
-  /* TOPBAR maior no desktop */
-  .tb-title{font-size:16px}
+  /* Conteúdo das telas — usa largura toda disponível */
+  .scr{
+    margin-left:0;
+    padding:28px 32px 40px;
+    width:100%;
+    max-width:none;
+  }
+
+  /* Limita largura interna apenas para legibilidade, com margem auto */
+  #scr-pedidos, #scr-ap, #scr-entrega, #scr-export, #scr-dash {
+    max-width:1600px;
+    margin-left:auto;
+    margin-right:auto;
+    width:100%;
+  }
+
+  /* Topbar visual */
+  .tb-title{font-size:17px;font-weight:700}
   .tb-sub{font-size:12px}
+
+  /* Search e filtros — limitar largura para não ficar gigante */
+  .sbar{max-width:600px}
 
   /* Cards em 3 colunas */
   #p-list, #entregas-list, #ap-list {
     grid-template-columns:repeat(3, 1fr);
-    gap:14px;
+    gap:16px;
   }
 
-  /* Métricas em 4 colunas mantém */
+  /* Métricas em 4 colunas */
   .mgrid{
     grid-template-columns:repeat(4, 1fr);
-    gap:14px;
+    gap:16px;
   }
-  .mv{font-size:28px}
+  .mv{font-size:30px}
+  .mc{padding:18px}
 
   /* Modais centralizados no desktop */
   .ov{justify-content:center;align-items:center}
@@ -308,19 +329,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
     max-width:560px;
     width:90%;
     max-height:88vh;
-    padding:28px 28px 28px;
+    padding:28px;
   }
   .mhnd{display:none}
 
   /* Filtros maiores */
   .fc{font-size:13px;padding:7px 16px}
 
-  /* Container Pedidos/Entrega — limita largura para legibilidade */
-  #scr-pedidos, #scr-ap, #scr-entrega, #scr-export {
-    max-width:1400px;
-  }
-  #scr-dash {
-    max-width:1400px;
+  /* Cards de pedidos com hover */
+  .card:hover{
+    border-color:var(--green);
+    transform:translateY(-1px);
+    transition:all .15s;
   }
 }
 
@@ -328,5 +348,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 @media (min-width: 1400px) {
   #p-list, #entregas-list, #ap-list {
     grid-template-columns:repeat(4, 1fr);
+  }
+}
+
+/* TELAS EXTRA GRANDES — 1700px+ */
+@media (min-width: 1700px) {
+  #p-list, #entregas-list, #ap-list {
+    grid-template-columns:repeat(5, 1fr);
   }
 }
