@@ -180,3 +180,146 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 /* DELIVERY */
 .delivery-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px;margin-bottom:7px}
 .gap-card{background:var(--purplebg);border:1px solid var(--purple);border-radius:8px;padding:8px 10px;margin-top:10px;display:flex;justify-content:space-between;align-items:center}
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVO — Tablet e Desktop
+   ═══════════════════════════════════════════════════════ */
+
+/* TABLET — 600px+ */
+@media (min-width: 600px) {
+  .app{max-width:720px}
+  .scr{padding:20px}
+  /* Cards em 2 colunas */
+  #p-list, #entregas-list, #ap-list {
+    display:grid;
+    grid-template-columns:repeat(2, 1fr);
+    gap:10px;
+  }
+  #p-list .card, #entregas-list .delivery-card, #ap-list .apc {
+    margin-bottom:0;
+  }
+  .mgrid{grid-template-columns:repeat(4, 1fr)}
+}
+
+/* DESKTOP — 1024px+ com SIDEBAR */
+@media (min-width: 1024px) {
+  body{font-size:14px}
+
+  .app{
+    max-width:none;
+    flex-direction:row;
+    min-height:100vh;
+  }
+
+  /* SIDEBAR — substitui o nav inferior */
+  .nav{
+    position:fixed;
+    top:0;
+    left:0;
+    bottom:0;
+    width:220px;
+    flex-direction:column;
+    border-top:none;
+    border-right:1px solid var(--border);
+    padding:24px 12px;
+    gap:4px;
+    z-index:100;
+  }
+  .nb{
+    flex:none;
+    flex-direction:row;
+    justify-content:flex-start;
+    gap:12px;
+    padding:11px 14px;
+    font-size:13px;
+    font-weight:500;
+    border-radius:10px;
+    border-top:none;
+    width:100%;
+    text-align:left;
+  }
+  .nb.on{
+    background:var(--bluebg);
+    color:var(--bluetxt);
+    border-top:none;
+  }
+  .nb:hover:not(.on){
+    background:var(--card);
+    color:var(--text);
+  }
+  .ni{font-size:18px}
+
+  /* Logo no topo da sidebar */
+  .nav::before{
+    content:"AMZP";
+    display:block;
+    font-size:18px;
+    font-weight:800;
+    color:var(--bluetxt);
+    padding:8px 14px 20px;
+    letter-spacing:.04em;
+    border-bottom:1px solid var(--border);
+    margin-bottom:14px;
+    background:linear-gradient(135deg,var(--blue),var(--green));
+    -webkit-background-clip:text;
+    background-clip:text;
+    -webkit-text-fill-color:transparent;
+  }
+
+  /* Container principal */
+  .topbar{
+    margin-left:220px;
+    padding:16px 28px;
+  }
+  .scr{
+    margin-left:220px;
+    padding:24px 28px 28px;
+    padding-bottom:28px;
+  }
+
+  /* TOPBAR maior no desktop */
+  .tb-title{font-size:16px}
+  .tb-sub{font-size:12px}
+
+  /* Cards em 3 colunas */
+  #p-list, #entregas-list, #ap-list {
+    grid-template-columns:repeat(3, 1fr);
+    gap:14px;
+  }
+
+  /* Métricas em 4 colunas mantém */
+  .mgrid{
+    grid-template-columns:repeat(4, 1fr);
+    gap:14px;
+  }
+  .mv{font-size:28px}
+
+  /* Modais centralizados no desktop */
+  .ov{justify-content:center;align-items:center}
+  .mdl{
+    border-radius:16px;
+    max-width:560px;
+    width:90%;
+    max-height:88vh;
+    padding:28px 28px 28px;
+  }
+  .mhnd{display:none}
+
+  /* Filtros maiores */
+  .fc{font-size:13px;padding:7px 16px}
+
+  /* Container Pedidos/Entrega — limita largura para legibilidade */
+  #scr-pedidos, #scr-ap, #scr-entrega, #scr-export {
+    max-width:1400px;
+  }
+  #scr-dash {
+    max-width:1400px;
+  }
+}
+
+/* TELAS GRANDES — 1400px+ */
+@media (min-width: 1400px) {
+  #p-list, #entregas-list, #ap-list {
+    grid-template-columns:repeat(4, 1fr);
+  }
+}
