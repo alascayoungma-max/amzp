@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Sistema AMZP - Gestão Industrial</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!-- Splash inicial -->
+<div id="splash" style="position:fixed;inset:0;background:linear-gradient(135deg,#0d1117 0%,#1c2128 100%);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .4s ease">
+  <div style="width:78px;height:78px;border-radius:18px;background:linear-gradient(135deg,#58a6ff,#3fb950);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;color:#0d1117;letter-spacing:.02em;box-shadow:0 6px 24px rgba(88,166,255,.25)">AMZP</div>
+  <div style="font-size:15px;font-weight:600;color:#c9d1d9;letter-spacing:.02em">Sistema AMZP</div>
+  <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.15em">Gestão Industrial</div>
+  <div style="margin-top:12px;display:flex;gap:6px">
+    <div style="width:6px;height:6px;border-radius:50%;background:#58a6ff;animation:bounce 1.2s infinite"></div>
+    <div style="width:6px;height:6px;border-radius:50%;background:#58a6ff;animation:bounce 1.2s infinite .2s"></div>
+    <div style="width:6px;height:6px;border-radius:50%;background:#58a6ff;animation:bounce 1.2s infinite .4s"></div>
+  </div>
+</div>
+<style>
+@keyframes bounce{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1.1)}}
+</style>
+
+<div class="app">
+  <div class="topbar">
+    <div class="tb-left">
+      <div class="tb-dot"></div>
+      <div>
+        <div class="tb-title">Sistema AMZP</div>
+        <div class="tb-sub" id="tb-date">—</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div id="sync-status" style="font-size:10px;color:var(--text3)">☁️ nuvem</div>
+      <div id="tb-alert"></div>
+    </div>
+  </div>
+
+  <!-- PEDIDOS -->
+  <div class="scr on" id="scr-pedidos">
+    <div class="sbar"><span class="sbar-ic">🔍</span><input type="text" placeholder="Pedido, cliente, produto…" id="srch" oninput="rPedidos()"></div>
+    <div class="frow">
+      <button class="fc on" onclick="setF('todos',this)">Todos</button>
+      <button class="fc" onclick="setF('Atrasado',this)">🔴 Atrasados</button>
+      <button class="fc" onclick="setF('Em risco',this)">🟡 Em risco</button>
+      <button class="fc" onclick="setF('No prazo',this)">🟢 No prazo</button>
+      <button class="fc" onclick="setF('Concluído',this)">✅ Concluídos</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div class="slbl" id="p-count" style="margin-bottom:0">—</div>
+      <button class="btn-novo" onclick="openNovoPedido()">+ Novo pedido</button>
+    </div>
+    <div id="p-list"></div>
+  </div>
+
+  <!-- APONTAMENTOS -->
+  <div class="scr" id="scr-ap">
+    <div class="slbl">Histórico de apontamentos</div>
+    <div id="ap-list"></div>
+  </div>
+
+  <!-- ENTREGA -->
+  <div class="scr" id="scr-entrega">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="slbl" style="margin-bottom:0">Nova entrega</div>
+      <button class="btn-novo" onclick="openNovaEntrega()">+ Registrar</button>
+    </div>
+    <div class="slbl">Últimas entregas</div>
+    <div id="entregas-list"></div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div class="scr" id="scr-dash">
+    <div class="frow">
+      <button class="fc on" onclick="setPeriodo('hoje',this)">Hoje</button>
+      <button class="fc" onclick="setPeriodo('semana',this)">Semana</button>
+      <button class="fc" onclick="setPeriodo('mes',this)">Mês</button>
+      <button class="fc" onclick="setPeriodo('total',this)">Total</button>
+    </div>
+
+    <div class="sec-h"><div class="sec-bar" style="background:var(--green)"></div><div class="sec-t" style="color:var(--greentxt)">⚙️ Produção</div></div>
+    <div class="mgrid" id="d-prod-metrics"></div>
+    <div id="d-prod-bars" style="margin-bottom:14px"></div>
+
+    <div class="sec-h"><div class="sec-bar" style="background:var(--blue)"></div><div class="sec-t" style="color:var(--bluetxt)">🚚 Entregas</div></div>
+    <div class="mgrid" id="d-ent-metrics"></div>
+    <div id="d-ent-bars" style="margin-bottom:14px"></div>
+
+    <div class="sec-h"><div class="sec-bar" style="background:var(--purple)"></div><div class="sec-t" style="color:var(--purple)">📈 Produção vs Entrega</div></div>
+    <div id="d-comparativo" style="margin-bottom:14px"></div>
+
+    <div class="sec-h"><div class="sec-bar" style="background:var(--border2)"></div><div class="sec-t" style="color:var(--text2)">🕐 Atividade recente</div></div>
+    <div id="d-atividade"></div>
+  </div>
+
+  <!-- EXPORTAR -->
+  <div class="scr" id="scr-export">
+    <div class="exp-card">
+      <div style="font-size:32px;text-align:center;margin-bottom:10px">📊</div>
+      <div style="font-size:14px;font-weight:600;text-align:center;margin-bottom:4px">Exportar relatório Excel</div>
+      <div style="font-size:12px;color:var(--text2);text-align:center;margin-bottom:14px;line-height:1.5">CSV com pedidos, apontamentos e entregas</div>
+      <div id="exp-preview" style="margin-bottom:16px"></div>
+      <button class="btn btn-xl" onclick="exportarCSV()">⬇️ Baixar planilha</button>
+      <div class="exp-log" id="exp-log"></div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <button class="nb on" onclick="showScr('pedidos',this)"><span class="ni">📋</span>Pedidos</button>
+    <button class="nb" onclick="showScr('ap',this)"><span class="ni">📝</span>Registros</button>
+    <button class="nb" onclick="showScr('entrega',this)"><span class="ni">🚚</span>Entrega</button>
+    <button class="nb" onclick="showScr('dash',this)"><span class="ni">📊</span>Dashboard</button>
+    <button class="nb" onclick="showScr('export',this)"><span class="ni">⬇️</span>Exportar</button>
+  </nav>
+</div>
+
+<!-- MODAL APONTAMENTO -->
+<div class="ov" id="modal" onclick="ovClick(event)">
+  <div class="mdl" id="mdl-body">
+    <div class="mhnd"></div>
+    <div class="mtit" id="m-title"></div>
+    <div class="msub" id="m-sub"></div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:10px 12px;margin-bottom:16px" id="m-info"></div>
+    <div class="fld"><label>Data do apontamento</label><input type="date" id="f-data"></div>
+    <div class="fld">
+      <label>Turno</label>
+      <div class="tpills">
+        <button class="tpill on" onclick="setTurno('Manhã',this)">☀️ Manhã</button>
+        <button class="tpill" onclick="setTurno('Tarde',this)">🌤 Tarde</button>
+        <button class="tpill" onclick="setTurno('Noite',this)">🌙 Noite</button>
+      </div>
+    </div>
+    <div class="fld"><label>Operador</label><input type="text" id="f-op" placeholder="Nome do operador"></div>
+    <div class="fld">
+      <label>Qtd produzida neste apontamento</label>
+      <div class="stp">
+        <button class="sb" onclick="chQty(-1)">−</button>
+        <div class="sv"><input type="number" id="qty-input" value="0" min="0" oninput="qtyInputChange()"></div>
+        <button class="sb" onclick="chQty(1)">+</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:5px" id="qty-hint"></div>
+    </div>
+    <div class="fld"><label>Observações / Paradas de máquina</label><textarea id="f-obs" placeholder="Ex: Parada 30min – manutenção correia…"></textarea></div>
+    <button class="btn btn-g" onclick="salvar()">✓ Registrar apontamento</button>
+    <button class="btn btn-s" onclick="closeModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL NOVO PEDIDO -->
+<div class="ov" id="modal-novo" onclick="ovClickNovo(event)">
+  <div class="mdl" id="mdl-novo">
+    <div class="mhnd"></div>
+    <div class="mtit">Novo Pedido</div>
+    <div class="msub">Cadastre o pedido e adicione um ou mais produtos</div>
+
+    <div class="fld"><label>Número do Pedido / OP</label><input type="text" id="n-id" placeholder="Ex: 702"></div>
+    <div class="fld"><label>Cliente</label><input type="text" id="n-cliente" placeholder="Nome do cliente"></div>
+    <div class="fld"><label>Data do pedido</label><input type="date" id="n-datapd"></div>
+    <div class="fld"><label>Prazo de entrega</label><input type="date" id="n-prazo"></div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.07em;color:var(--text3);text-transform:uppercase">Produtos do pedido</div>
+      <button class="btn-novo" onclick="addProdutoLinha()" style="padding:5px 11px;font-size:11px">+ Adicionar</button>
+    </div>
+
+    <div id="produtos-lista"></div>
+
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;margin-top:8px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:12px;color:var(--text2)">Total de itens</span>
+      <span style="font-size:13px;font-weight:700;color:var(--bluetxt);font-family:var(--mono)" id="produtos-total">0 produto(s)</span>
+    </div>
+
+    <button class="btn btn-b" onclick="salvarNovoPedido()">+ Cadastrar pedido</button>
+    <button class="btn btn-s" onclick="closeNovoPedido()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL NOVA ENTREGA -->
+<div class="ov" id="modal-entrega" onclick="ovClickEntrega(event)">
+  <div class="mdl" id="mdl-entrega">
+    <div class="mhnd"></div>
+    <div class="mtit">Nova entrega</div>
+    <div class="msub">Registre a saída de mercadoria</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Romaneio nº</label>
+        <div style="background:var(--card);border:1px solid var(--blue);border-radius:var(--r);padding:9px 11px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:15px;font-weight:700;color:var(--bluetxt);font-family:var(--mono)" id="e-rom">#0001</span>
+          <span style="font-size:9px;color:var(--blue);font-weight:600">auto ✓</span>
+        </div>
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Data de saída</label>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:9px 11px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;color:var(--text)" id="e-data">26/05/2026</span>
+          <span style="font-size:9px;color:var(--greentxt);font-weight:600">auto ✓</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="fld">
+      <label>Pedido</label>
+      <input type="text" id="e-busca" placeholder="🔍 Digite nº OP, cliente ou produto…" oninput="buscarPedidoEntrega()">
+      <div id="e-busca-result" style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-top:4px;max-height:160px;overflow-y:auto;display:none"></div>
+    </div>
+
+    <div id="e-pedido-card" style="display:none;background:var(--card);border:1px solid var(--blue);border-radius:10px;padding:11px;margin-bottom:14px"></div>
+
+    <div class="fld">
+      <label>Quantidade entregue</label>
+      <div class="qty-wrap">
+        <div class="stp" style="flex:1">
+          <button class="sb" onclick="chQtyE(-1)">−</button>
+          <div class="sv"><input type="number" id="e-qty" value="0" min="0" oninput="updateSaldoEntrega()"></div>
+          <button class="sb" onclick="chQtyE(1)">+</button>
+        </div>
+        <div class="unit-sel">
+          <select id="e-unid" onchange="updateSaldoEntrega()">
+            <option value="un">un</option>
+            <option value="m">m</option>
+            <option value="m²">m²</option>
+            <option value="m³">m³</option>
+            <option value="palete">palete</option>
+          </select>
+        </div>
+      </div>
+      <div id="e-saldo" style="display:none;background:var(--greenbg);border:1px solid var(--green);border-radius:8px;padding:7px 10px;margin-top:6px;display:flex;justify-content:space-between;align-items:center"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Entregador</label>
+        <input type="text" id="e-entregador" placeholder="Nome..." style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-family:var(--font);font-size:14px;padding:9px 11px;outline:none">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Conferente</label>
+        <input type="text" id="e-conferente" placeholder="Nome..." style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-family:var(--font);font-size:14px;padding:9px 11px;outline:none">
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Veículo</label>
+        <input type="text" id="e-veiculo" placeholder="Placa / tipo..." style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-family:var(--font);font-size:14px;padding:9px 11px;outline:none">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Destino</label>
+        <input type="text" id="e-destino" placeholder="Endereço..." style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-family:var(--font);font-size:14px;padding:9px 11px;outline:none">
+      </div>
+    </div>
+
+    <div class="fld">
+      <label>Status da entrega</label>
+      <div class="status-pills">
+        <button class="st-pill on-g" id="st-entregue" onclick="setStatusEntrega('Entregue')">✅ Entregue</button>
+        <button class="st-pill" id="st-parcial" onclick="setStatusEntrega('Parcial')">⚠️ Parcial</button>
+        <button class="st-pill" id="st-devolvido" onclick="setStatusEntrega('Devolvido')">↩️ Devolvido</button>
+      </div>
+    </div>
+
+    <div class="fld">
+      <label>Observações</label>
+      <textarea id="e-obs" placeholder="Anotações opcionais..."></textarea>
+    </div>
+
+    <div class="fld">
+      <label>Foto do comprovante</label>
+      <input type="file" id="e-foto-input" accept="image/*" capture="environment" style="display:none" onchange="processFoto(event)">
+      <div class="photo-box" onclick="document.getElementById('e-foto-input').click()">
+        <div class="photo-icon">📷</div>
+        <div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:2px">Tire uma foto do canhoto</div>
+          <div style="font-size:10px;color:var(--text3)">ou comprovante de entrega</div>
+        </div>
+      </div>
+      <div id="e-foto-preview" style="display:none" class="photo-preview"></div>
+    </div>
+
+    <div class="fld">
+      <label>Assinatura do conferente</label>
+      <div class="sig-pad" id="sig-pad-conf">
+        <canvas id="sig-canvas-conf"></canvas>
+        <div class="sig-hint" id="sig-hint-conf"><span style="font-size:18px">✍️</span><span style="font-size:11px">Assine com o dedo aqui</span></div>
+      </div>
+      <div class="sig-btns">
+        <div class="sig-btn" onclick="clearSig('conf')">🗑 Limpar</div>
+        <div class="sig-btn ok" onclick="confirmSig('conf')">✓ Confirmar</div>
+      </div>
+    </div>
+
+    <div class="fld">
+      <label>Assinatura do cliente</label>
+      <div class="sig-pad" id="sig-pad-cli">
+        <canvas id="sig-canvas-cli"></canvas>
+        <div class="sig-hint" id="sig-hint-cli"><span style="font-size:18px">✍️</span><span style="font-size:11px">Quem recebeu assina aqui</span></div>
+      </div>
+      <div class="sig-btns">
+        <div class="sig-btn" onclick="clearSig('cli')">🗑 Limpar</div>
+        <div class="sig-btn ok-amber" onclick="confirmSig('cli')">✓ Confirmar</div>
+      </div>
+    </div>
+
+    <button class="btn btn-g" onclick="salvarEntrega()">✓ Registrar entrega</button>
+    <button class="btn btn-s" onclick="closeEntrega()">Cancelar</button>
+  </div>
+</div>
+
+<!-- Scripts (módulos separados) -->
+<script type="module" src="js/firebase.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
