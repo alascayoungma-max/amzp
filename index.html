@@ -5,8 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Sistema AMZP - Gestão Industrial</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="modulepreload" href="js/vendor/firebase/firebase-app.js">
+<link rel="modulepreload" href="js/vendor/firebase/firebase-firestore.js">
+<link rel="modulepreload" href="js/firebase.js">
+<link rel="modulepreload" href="js/app.js">
 </head>
 <body>
+<script>
+if(location.protocol==='file:'){
+  location.replace('https://alascayoungma-max.github.io/amzp/?origem=arquivo-local');
+}
+</script>
 <!-- Splash inicial -->
 <div id="splash" style="position:fixed;inset:0;background:linear-gradient(135deg,#0F1408 0%,#1F2B14 100%);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .4s ease">
   <div style="width:78px;height:78px;border-radius:18px;background:linear-gradient(135deg,#88B257,#5A7C36);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:#0F1408;letter-spacing:.02em;box-shadow:0 6px 24px rgba(136,178,87,.3)">AMZP</div>
@@ -446,7 +455,6 @@
 </div>
 
 <!-- Scripts (módulos separados) -->
-<script src="js/vendor/jspdf.umd.min.js"></script>
 <script type="module" src="js/firebase.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>

@@ -1006,8 +1006,23 @@ async function darkenSig(dataURL){
   if(!dataURL)return '';
   return new Promise(resolve=>{const img=new Image();img.onload=()=>{try{const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);for(let i=0;i<pixels.data.length;i+=4){if(pixels.data[i+3]>10){pixels.data[i]=20;pixels.data[i+1]=24;pixels.data[i+2]=28;}}ctx.putImageData(pixels,0,0);resolve(canvas.toDataURL('image/png'));}catch{resolve(dataURL);}};img.onerror=()=>resolve(dataURL);img.src=dataURL;});
 }
+let pdfLibraryPromise=null;
+async function carregarBibliotecaPDF(){
+  if(window.jspdf)return;
+  if(!pdfLibraryPromise){
+    pdfLibraryPromise=new Promise((resolve,reject)=>{
+      const script=document.createElement('script');
+      script.src='js/vendor/jspdf.umd.min.js';
+      script.onload=()=>window.jspdf?resolve():reject(new Error('jsPDF não iniciou'));
+      script.onerror=()=>reject(new Error('Falha ao carregar jsPDF'));
+      document.head.appendChild(script);
+    }).catch(error=>{pdfLibraryPromise=null;throw error;});
+  }
+  await pdfLibraryPromise;
+}
 async function compartilharPDF(rc){
-  if(!window.jspdf){showToast('⚠️ Biblioteca de PDF indisponível');return;}
+  if(!window.jspdf)showToast('⏳ Preparando gerador de PDF...');
+  try{await carregarBibliotecaPDF();}catch{showToast('⚠️ Não foi possível carregar o gerador de PDF');return;}
   const {jsPDF}=window.jspdf;const pdf=new jsPDF({unit:'mm',format:'a4'});const W=210,M=16;let y=18;
   pdf.setFontSize(9);pdf.setTextColor(120);pdf.text('Sistema AMZP — Gestão Industrial',M,y);pdf.setFont(undefined,'bold');pdf.setFontSize(18);pdf.setTextColor(20);pdf.text('REQUISIÇÃO DE COMPRA',M,y+10);pdf.setFontSize(13);pdf.setTextColor(190,140,10);pdf.text(rc.numero,W-M,y+10,{align:'right'});y+=26;
   pdf.setFont(undefined,'normal');pdf.setFontSize(10);pdf.setTextColor(60);const dt=new Date(rc.timestamp||Date.now());pdf.text(`Solicitante: ${rc.solicitante||'-'}`,M,y);pdf.text(`Data: ${dt.toLocaleString('pt-BR')}`,W-M,y,{align:'right'});y+=6;pdf.text(`Setor: ${rc.setor||'-'}`,M,y);if(rc.origemRM)pdf.text(`Origem: ${rc.origemRM}`,W-M,y,{align:'right'});y+=10;
@@ -1178,4 +1193,4 @@ setTimeout(()=>{
     splash.style.opacity='0';
     setTimeout(()=>splash.remove(),400);
   }
-}, 1400);
+}, 350);

@@ -1,6 +1,6 @@
 // ===== CONFIGURAÇÃO DO FIREBASE =====
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, onSnapshot, addDoc, query, orderBy, getDocs, runTransaction, deleteDoc } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+import { initializeApp } from "./vendor/firebase/firebase-app.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, onSnapshot, addDoc, query, orderBy, getDocs, runTransaction, deleteDoc } from "./vendor/firebase/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD-whKWwiLo_D43XDWqAE275HollpG1QSA",
