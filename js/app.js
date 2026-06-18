@@ -24,8 +24,10 @@ const PEDIDOS_BASE=[
 ];
 
 let pedidos=[], apontamentos=[], entregas=[], curFilter='todos', curPeriodo='hoje', editingId=null, qty=0, turno='Manhã';
-let entregaPedidoId=null, entregaStatus='Entregue', entregaFotoBase64='', entregaSigConf='', entregaSigCli='';
-let salvandoEntrega = false;
+let entregaPedidoId=null, entregaStatus='Parcial', entregaFotoBase64='', entregaSigConf='', entregaSigCli='';
+let assinaturaEntregaDocId=null, assinaturaEntregaAtual=null, assinaturaPendenteBase64='';
+let salvandoEntrega = false, salvandoAssinatura = false;
+let requisicoes=[];
 let produtosLinhas = [];
 let produtoLinhaSeq = 0;
 const ORDEM_STATUS={'Atrasado':0,'Em risco':1,'No prazo':2,'Concluído':3};
@@ -54,9 +56,47 @@ function diasRestantes(prazo){
   const p=new Date(prazo),n=new Date();n.setHours(0,0,0,0);p.setHours(0,0,0,0);
   return Math.round((p-n)/86400000);
 }
-function qtdEntregue(pedidoId){
-  return entregas.filter(e=>e.pedidoId===pedidoId && e.status!=='Devolvido').reduce((s,e)=>s+(e.qtd||0),0);
+function normalizarClassificacaoEntrega(status){
+  if(status==='Devolvido'||status==='Devolução') return 'Devolução';
+  if(status==='Entregue'||status==='Concluída'||status==='Concluido') return 'Concluída';
+  return 'Parcial';
 }
+function classificacaoEntrega(e){return normalizarClassificacaoEntrega(e?.status);}
+function statusAssinaturaEntrega(e){return e?.statusAssinatura || (e?.sigCli ? 'Concluída' : 'Aguardando assinatura');}
+function badgeClassificacaoEntrega(status){
+  const s=normalizarClassificacaoEntrega(status);
+  if(s==='Concluída') return '<span class="badge-mini badge-ok">✅ Concluída</span>';
+  if(s==='Devolução') return '<span class="badge-mini badge-danger">↩️ Devolução</span>';
+  return '<span class="badge-mini badge-warn">⚠️ Parcial</span>';
+}
+function badgeAssinaturaEntrega(e){
+  return statusAssinaturaEntrega(e)==='Concluída'
+    ? '<span class="badge-mini badge-ok">✍️ Assinada</span>'
+    : '<span class="badge-mini badge-warn">✍️ Pendente assinatura</span>';
+}
+function calcularClassificacaoEntrega(p,qtd,statusAtual=entregaStatus){
+  if(normalizarClassificacaoEntrega(statusAtual)==='Devolução') return 'Devolução';
+  const totalPedido=p?.qtdPedida||0;
+  const totalApos=qtdEntregue(p.id)+(parseInt(qtd)||0);
+  return totalPedido>0 && totalApos>=totalPedido ? 'Concluída' : 'Parcial';
+}
+function qtdEntregue(pedidoId){
+  const total=entregas.filter(e=>e.pedidoId===pedidoId).reduce((s,e)=>s+(classificacaoEntrega(e)==='Devolução'?-(e.qtd||0):(e.qtd||0)),0);
+  return Math.max(0,total);
+}
+function qtdEmEmpresaAntesEntrega(e){
+  if(typeof e?.qtdEmEmpresaAntes==='number') return e.qtdEmEmpresaAntes;
+  const p=pedidos.find(x=>x.id===e?.pedidoId);if(!p)return null;
+  const ts=new Date(e.timestamp).getTime();
+  const movimentoAntes=entregas.filter(x=>x.pedidoId===e.pedidoId && x.docId!==e.docId && new Date(x.timestamp).getTime()<ts).reduce((s,x)=>s+(classificacaoEntrega(x)==='Devolução'?-(x.qtd||0):(x.qtd||0)),0);
+  return Math.max(0,(p.qtdProduzida||0)-movimentoAntes);
+}
+function qtdEmEmpresaDepoisEntrega(e){
+  if(typeof e?.qtdEmEmpresaDepois==='number') return e.qtdEmEmpresaDepois;
+  const antes=qtdEmEmpresaAntesEntrega(e);if(antes===null)return null;
+  return classificacaoEntrega(e)==='Devolução' ? antes+(e.qtd||0) : Math.max(0,antes-(e.qtd||0));
+}
+function fmtQtd(v,unid){return v===null||v===undefined?'—':Number(v).toLocaleString('pt-BR')+' '+(unid||'un');}
 function letraSequencia(n){
   let s = ''; n = n + 1;
   while(n > 0){ n--; s = String.fromCharCode(97 + (n % 26)) + s; n = Math.floor(n / 26); }
@@ -67,6 +107,14 @@ function showToast(msg){
   const t=document.createElement('div');t.id='t-el';t.className='toast';t.textContent=msg;
   document.body.appendChild(t);setTimeout(()=>t.remove(),2400);
 }
+function setSync(state){
+  const el=document.getElementById('sync-status');if(!el)return;
+  const offline=state==='err'||!navigator.onLine;
+  el.textContent=offline?'📴 offline · dados salvos no aparelho':'☁️ online';
+  el.style.color=offline?'var(--ambertxt)':'var(--text3)';
+}
+window.addEventListener('online',()=>setSync('ok'));
+window.addEventListener('offline',()=>setSync('err'));
 
 // ===== SYNC FIREBASE =====
 function iniciarSync(){
@@ -78,27 +126,32 @@ function iniciarSync(){
       pedidos = snap.docs.map(d=>d.data());
       rPedidos();
       updateTopbar();
-      document.getElementById('sync-status').textContent='☁️ online';
+      setSync('ok');
     }
-  });
+  },()=>setSync('err'));
   const qAp = query(collection(db,'apontamentos'), orderBy('timestamp','desc'));
   onSnapshot(qAp, snap=>{
     apontamentos = snap.docs.map(d=>({...d.data(), docId:d.id}));
     if(document.getElementById('scr-ap').classList.contains('on')) rApontamentos();
     if(document.getElementById('scr-dash').classList.contains('on')) rDash();
-  });
+  },()=>setSync('err'));
   const qEnt = query(collection(db,'entregas'), orderBy('timestamp','desc'));
   onSnapshot(qEnt, snap=>{
     entregas = snap.docs.map(d=>({...d.data(), docId:d.id}));
     if(document.getElementById('scr-entrega').classList.contains('on')) rEntregas();
     if(document.getElementById('scr-dash').classList.contains('on')) rDash();
     rPedidos();
-  });
+  },()=>setSync('err'));
 }
 
 async function savePedido(p){ await setDoc(doc(db,'pedidos',p.id), p); }
 async function saveApontamento(ap){ await addDoc(collection(db,'apontamentos'), ap); }
 async function saveEntrega(ent){ await addDoc(collection(db,'entregas'), ent); }
+async function updateEntrega(docIdEnt, ent){
+  const payload={...ent};
+  delete payload.docId;
+  await setDoc(doc(db,'entregas',docIdEnt), payload);
+}
 
 async function gerarRomaneio(){
   const counterRef = doc(db,'contadores','romaneio');
@@ -132,6 +185,7 @@ window.showScr=function(name,btn){
   if(name==='dash') rDash();
   if(name==='ap') rApontamentos();
   if(name==='entrega') rEntregas();
+  if(name==='req') rReq();
   if(name==='export') rExport();
 };
 window.setF=function(f,el){curFilter=f;document.querySelectorAll('#scr-pedidos .fc').forEach(c=>c.classList.remove('on'));el.classList.add('on');rPedidos();};
@@ -315,7 +369,7 @@ window.salvarNovoPedido=async function(){
 
 // ===== ENTREGA =====
 window.openNovaEntrega=async function(){
-  entregaPedidoId=null; entregaStatus='Entregue';
+  entregaPedidoId=null; entregaStatus='Parcial';
   entregaFotoBase64=''; entregaSigConf=''; entregaSigCli='';
   document.getElementById('e-busca').value='';
   document.getElementById('e-busca-result').style.display='none';
@@ -329,7 +383,7 @@ window.openNovaEntrega=async function(){
   document.getElementById('e-destino').value='';
   document.getElementById('e-obs').value='';
   document.getElementById('e-foto-preview').style.display='none';
-  window.setStatusEntrega('Entregue');
+  window.setStatusEntrega('Parcial');
   const n=new Date();
   document.getElementById('e-data').textContent=n.toLocaleDateString('pt-BR');
   document.getElementById('e-rom').textContent = await previewProximoRomaneio();
@@ -353,6 +407,7 @@ window.selecionarPedidoEntrega=function(id){
   const p=pedidos.find(x=>x.id===id);if(!p)return;
   entregaPedidoId=id;
   const ent=qtdEntregue(id);
+  const estoqueEmpresa=Math.max(0,(p.qtdProduzida||0)-ent);
   const s=calcStatus(p);
   document.getElementById('e-busca').value=`#${p.id} · ${p.cliente}`;
   document.getElementById('e-busca-result').style.display='none';
@@ -367,9 +422,10 @@ window.selecionarPedidoEntrega=function(id){
       </div>${statusBadge(s)}
     </div>
     <div style="display:flex;gap:14px;font-size:11px;color:var(--text2);padding-top:8px;border-top:1px solid var(--border)">
-      <span>📦 <b style="color:var(--text)">${p.qtdPedida}</b></span>
-      <span>⚙️ <b style="color:var(--greentxt)">${p.qtdProduzida}</b></span>
-      <span>🚚 <b style="color:var(--bluetxt)">${ent}</b></span>
+      <span>📦 Pedido <b style="color:var(--text)">${p.qtdPedida}</b></span>
+      <span>⚙️ Produzido <b style="color:var(--greentxt)">${p.qtdProduzida}</b></span>
+      <span>🏢 Empresa <b style="color:var(--ambertxt)">${estoqueEmpresa}</b></span>
+      <span>🚚 Saiu <b style="color:var(--bluetxt)">${ent}</b></span>
     </div>`;
   card.style.display='block';
   window.updateSaldoEntrega();
@@ -378,7 +434,7 @@ window.chQtyE=function(d){
   if(!entregaPedidoId)return;
   const p=pedidos.find(x=>x.id===entregaPedidoId);if(!p)return;
   const ent=qtdEntregue(entregaPedidoId);
-  const max=p.qtdProduzida-ent;
+  const max=Math.max(0,(p.qtdProduzida||0)-ent);
   const cur=parseInt(document.getElementById('e-qty').value)||0;
   document.getElementById('e-qty').value=Math.max(0,Math.min(max,cur+d));
   window.updateSaldoEntrega();
@@ -388,19 +444,26 @@ window.updateSaldoEntrega=function(){
   const p=pedidos.find(x=>x.id===entregaPedidoId);if(!p)return;
   const ent=qtdEntregue(entregaPedidoId);
   const novo=parseInt(document.getElementById('e-qty').value)||0;
-  const max=p.qtdProduzida-ent;
+  const max=Math.max(0,(p.qtdProduzida||0)-ent);
   if(novo>max){document.getElementById('e-qty').value=max;}
-  const restante=p.qtdProduzida-ent-(parseInt(document.getElementById('e-qty').value)||0);
+  const qtdAtual=parseInt(document.getElementById('e-qty').value)||0;
+  const restante=max-qtdAtual;
   const unid=document.getElementById('e-unid').value;
   const el=document.getElementById('e-saldo');
   el.style.display='flex';
-  el.innerHTML=`<span style="font-size:11px;color:var(--green)">Saldo após essa entrega</span><span style="font-size:12px;font-weight:700;color:var(--greentxt)">${restante} ${unid} restantes</span>`;
+  el.innerHTML=`<span style="font-size:11px;color:var(--green)">Na empresa após essa saída</span><span style="font-size:12px;font-weight:700;color:var(--greentxt)">${restante} ${unid} restantes</span>`;
+  if(normalizarClassificacaoEntrega(entregaStatus)!=='Devolução') window.setStatusEntrega('Parcial');
 };
 window.setStatusEntrega=function(s){
-  entregaStatus=s;
-  document.getElementById('st-entregue').className='st-pill'+(s==='Entregue'?' on-g':'');
-  document.getElementById('st-parcial').className='st-pill'+(s==='Parcial'?' on-a':'');
-  document.getElementById('st-devolvido').className='st-pill'+(s==='Devolvido'?' on-r':'');
+  let normal=normalizarClassificacaoEntrega(s);
+  if(normal!=='Devolução' && entregaPedidoId){
+    const p=pedidos.find(x=>x.id===entregaPedidoId);
+    if(p) normal=calcularClassificacaoEntrega(p,document.getElementById('e-qty').value,normal);
+  }
+  entregaStatus=normal;
+  document.getElementById('st-entregue').className='st-pill'+(normal==='Concluída'?' on-g':'');
+  document.getElementById('st-parcial').className='st-pill'+(normal==='Parcial'?' on-a':'');
+  document.getElementById('st-devolvido').className='st-pill'+(normal==='Devolução'?' on-r':'');
 };
 window.processFoto=function(e){
   const f=e.target.files[0];if(!f)return;
@@ -416,7 +479,7 @@ window.processFoto=function(e){
 window.removerFoto=function(){entregaFotoBase64='';document.getElementById('e-foto-preview').style.display='none';document.getElementById('e-foto-input').value='';};
 
 // ===== ASSINATURA CANVAS =====
-const sigState = {conf:{drawing:false,empty:true,ctx:null,canvas:null},cli:{drawing:false,empty:true,ctx:null,canvas:null}};
+const sigState = {conf:{drawing:false,empty:true,ctx:null,canvas:null},cli:{drawing:false,empty:true,ctx:null,canvas:null},'cli-pendente':{drawing:false,empty:true,ctx:null,canvas:null}};
 function initSig(tipo){
   const canvas=document.getElementById('sig-canvas-'+tipo);
   const pad=document.getElementById('sig-pad-'+tipo);
@@ -437,17 +500,21 @@ function initSig(tipo){
   canvas.onmouseup=end; canvas.onmouseleave=end;
 }
 window.clearSig=function(tipo){
-  const s=sigState[tipo];if(!s.ctx)return;
+  const s=sigState[tipo];if(!s||!s.ctx)return;
   s.ctx.clearRect(0,0,s.canvas.width,s.canvas.height);
   s.empty=true;
   document.getElementById('sig-hint-'+tipo).classList.remove('hidden');
   document.getElementById('sig-pad-'+tipo).classList.remove('signed');
-  if(tipo==='conf') entregaSigConf=''; else entregaSigCli='';
+  if(tipo==='conf') entregaSigConf='';
+  else if(tipo==='cli') entregaSigCli='';
+  else if(tipo==='cli-pendente') assinaturaPendenteBase64='';
 };
 window.confirmSig=function(tipo){
-  const s=sigState[tipo];if(!s.ctx||s.empty){showToast('⚠️ Assine primeiro');return;}
+  const s=sigState[tipo];if(!s||!s.ctx||s.empty){showToast('⚠️ Assine primeiro');return;}
   const data=s.canvas.toDataURL('image/png');
-  if(tipo==='conf') entregaSigConf=data; else entregaSigCli=data;
+  if(tipo==='conf') entregaSigConf=data;
+  else if(tipo==='cli') entregaSigCli=data;
+  else if(tipo==='cli-pendente') assinaturaPendenteBase64=data;
   document.getElementById('sig-pad-'+tipo).classList.add('signed');
   showToast('✓ Assinatura confirmada');
 };
@@ -469,6 +536,12 @@ window.salvarEntrega=async function(){
   try {
     const p=pedidos.find(x=>x.id===entregaPedidoId);
     const romaneio = await gerarRomaneio();
+    const qtdJaEntregueAntes=qtdEntregue(entregaPedidoId);
+    const qtdEmEmpresaAntes=Math.max(0,(p.qtdProduzida||0)-qtdJaEntregueAntes);
+    const classificacao=calcularClassificacaoEntrega(p,qtd,entregaStatus);
+    const qtdEmEmpresaDepois=classificacao==='Devolução' ? qtdEmEmpresaAntes+qtd : Math.max(0,qtdEmEmpresaAntes-qtd);
+    const statusAssinatura=entregaSigCli ? 'Concluída' : 'Aguardando assinatura';
+    const agora=new Date().toISOString();
     const ent={
       romaneio, pedidoId:entregaPedidoId, cliente:p.cliente, produto:p.produto, qtd,
       unid:document.getElementById('e-unid').value,
@@ -476,13 +549,19 @@ window.salvarEntrega=async function(){
       conferente,
       veiculo:document.getElementById('e-veiculo').value.trim(),
       destino:document.getElementById('e-destino').value.trim(),
-      status:entregaStatus, obs:document.getElementById('e-obs').value.trim(),
+      status:classificacao, statusAssinatura, obs:document.getElementById('e-obs').value.trim(),
+      qtdPedidaRegistro:p.qtdPedida||0,
+      qtdProduzidaRegistro:p.qtdProduzida||0,
+      qtdJaEntregueAntes,
+      qtdEmEmpresaAntes,
+      qtdEmEmpresaDepois,
       foto:entregaFotoBase64, sigConf:entregaSigConf, sigCli:entregaSigCli,
-      data:hoje(), timestamp:new Date().toISOString()
+      assinaturaClienteEm:entregaSigCli ? agora : '',
+      data:hoje(), timestamp:agora
     };
     await saveEntrega(ent);
     window.closeEntrega();
-    showToast('✅ Entrega '+romaneio+' registrada!');
+    showToast(statusAssinatura==='Aguardando assinatura' ? '✅ Entrega '+romaneio+' salva. Assinatura pendente.' : '✅ Entrega '+romaneio+' registrada!');
   } catch(err) {
     showToast('⚠️ Erro ao salvar: '+err.message);
   } finally {
@@ -491,6 +570,47 @@ window.salvarEntrega=async function(){
     btnSalvar.style.opacity = '1';
     btnSalvar.disabled = false;
   }
+};
+
+window.openColetarAssinatura=function(docIdEnt){
+  const e=entregas.find(x=>x.docId===docIdEnt);if(!e)return;
+  assinaturaEntregaDocId=docIdEnt;
+  assinaturaEntregaAtual=e;
+  assinaturaPendenteBase64='';
+  const dt=new Date(e.timestamp);
+  document.getElementById('as-info').innerHTML=`
+    <div class="delivery-badges" style="margin-bottom:8px">${badgeAssinaturaEntrega(e)}${badgeClassificacaoEntrega(classificacaoEntrega(e))}</div>
+    <div class="irow" style="padding-top:0"><span class="ilbl">Romaneio</span><span class="ival">${e.romaneio||'—'}</span></div>
+    <div class="irow"><span class="ilbl">Pedido</span><span class="ival">OP #${e.pedidoId||'—'}</span></div>
+    <div class="irow"><span class="ilbl">Cliente</span><span class="ival">${e.cliente||'—'}</span></div>
+    <div class="irow"><span class="ilbl">Produto</span><span class="ival">${e.produto||'—'}</span></div>
+    <div class="irow"><span class="ilbl">Quantidade entregue</span><span class="ival">${fmtQtd(e.qtd,e.unid)}</span></div>
+    <div class="irow"><span class="ilbl">Na empresa antes</span><span class="ival">${fmtQtd(qtdEmEmpresaAntesEntrega(e),e.unid)}</span></div>
+    <div class="irow" style="padding-bottom:0"><span class="ilbl">Data</span><span class="ival">${dt.toLocaleDateString('pt-BR')}</span></div>`;
+  document.getElementById('modal-assinatura').classList.add('on');
+  document.getElementById('mdl-assinatura').scrollTop=0;
+  setTimeout(()=>{initSig('cli-pendente');},150);
+};
+window.closeAssinatura=function(){
+  document.getElementById('modal-assinatura').classList.remove('on');
+  assinaturaEntregaDocId=null; assinaturaEntregaAtual=null; assinaturaPendenteBase64='';
+};
+window.ovClickAssinatura=function(e){if(e.target===document.getElementById('modal-assinatura'))window.closeAssinatura();};
+window.salvarAssinaturaCliente=async function(){
+  if(salvandoAssinatura)return;
+  if(!assinaturaEntregaDocId||!assinaturaEntregaAtual){showToast('⚠️ Entrega não encontrada');return;}
+  if(!assinaturaPendenteBase64){showToast('⚠️ Confirme a assinatura do cliente');return;}
+  salvandoAssinatura=true;
+  const btn=document.getElementById('as-save');
+  const txt=btn.textContent;
+  btn.textContent='⏳ Salvando...';btn.disabled=true;btn.style.opacity='0.6';
+  try{
+    const atualizada={...assinaturaEntregaAtual,sigCli:assinaturaPendenteBase64,statusAssinatura:'Concluída',assinaturaClienteEm:new Date().toISOString()};
+    await updateEntrega(assinaturaEntregaDocId,atualizada);
+    window.closeAssinatura();
+    showToast('✅ Assinatura do cliente salva!');
+  }catch(err){showToast('⚠️ Erro ao salvar assinatura: '+err.message);}
+  finally{salvandoAssinatura=false;btn.textContent=txt;btn.disabled=false;btn.style.opacity='1';}
 };
 window.excluirEntrega=async function(docId, romaneio){
   if(!confirm('Excluir a entrega '+romaneio+'?\n\nEsta ação não pode ser desfeita.'))return;
@@ -504,22 +624,39 @@ function rEntregas(){
   if(!entregas.length){el.innerHTML='<div class="empty">🚚 Nenhuma entrega registrada ainda</div>';return;}
   el.innerHTML=entregas.slice(0,30).map(e=>{
     const dt=new Date(e.timestamp);
-    const stBdg = e.status==='Entregue'?'<span style="font-size:9px;background:var(--greenbg);color:var(--greentxt);padding:2px 5px;border-radius:4px">✅ Entregue</span>':e.status==='Parcial'?'<span style="font-size:9px;background:var(--amberbg);color:var(--ambertxt);padding:2px 5px;border-radius:4px">⚠️ Parcial</span>':'<span style="font-size:9px;background:var(--redbg);color:var(--redtxt);padding:2px 5px;border-radius:4px">↩️ Devolvido</span>';
-    const sigBdg = e.sigCli?'<span style="font-size:9px;background:var(--greenbg);color:var(--greentxt);padding:2px 5px;border-radius:4px">✍️ assinado</span>':'<span style="font-size:9px;background:var(--redbg);color:var(--redtxt);padding:2px 5px;border-radius:4px">✍️ pendente</span>';
-    return `<div class="delivery-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-        <div><span class="cid">OP #${e.pedidoId}</span><span style="font-size:11px;color:var(--text2);margin-left:6px">${e.cliente}</span></div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="apt">${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
-          <span onclick="excluirEntrega('${e.docId}','${e.romaneio}')" style="font-size:14px;color:var(--redtxt);cursor:pointer;padding:2px 4px;touch-action:manipulation" title="Excluir">🗑️</span>
+    const pendente=statusAssinaturaEntrega(e)==='Aguardando assinatura';
+    const classif=classificacaoEntrega(e);
+    const antes=qtdEmEmpresaAntesEntrega(e);
+    const depois=qtdEmEmpresaDepoisEntrega(e);
+    return `<div class="delivery-card ${pendente?'pending-signature':'done-signature'}">
+      <div class="delivery-head">
+        <div>
+          <span class="cid">OP #${e.pedidoId}</span>
+          <span class="delivery-client">${e.cliente||'—'}</span>
         </div>
+        <div class="delivery-date">${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
       </div>
-      <div style="font-size:11px;color:var(--text2);margin-bottom:6px">${e.produto} · Rom. <b style="color:var(--bluetxt)">${e.romaneio}</b></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <div style="font-size:11px;color:var(--text2);flex:1;min-width:0">🚚 ${e.entregador||'—'} · 🔍 ${e.conferente||'—'} · 🚗 ${e.veiculo||'—'}</div>
-        <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:13px;font-weight:700;color:var(--greentxt)">${e.qtd} ${e.unid}</div>
-          <div style="display:flex;gap:3px;margin-top:2px">${stBdg}${sigBdg}</div>
+
+      <div class="delivery-title">${e.produto||'—'}</div>
+      <div class="delivery-rom">Romaneio <b>${e.romaneio||'—'}</b></div>
+
+      <div class="delivery-stock">
+        <div><span>Pedido</span><strong>OP #${e.pedidoId||'—'}</strong></div>
+        <div><span>Produto</span><strong>${e.produto||'—'}</strong></div>
+        <div><span>Na empresa antes da saída</span><strong>${fmtQtd(antes,e.unid)}</strong></div>
+        <div><span>Na empresa depois</span><strong>${fmtQtd(depois,e.unid)}</strong></div>
+      </div>
+
+      <div class="delivery-foot">
+        <div class="delivery-people">🚚 ${e.entregador||'—'} · 🔍 ${e.conferente||'—'} · 🚗 ${e.veiculo||'—'}</div>
+        <div class="delivery-qty">${fmtQtd(e.qtd,e.unid)}</div>
+      </div>
+
+      <div class="delivery-actions">
+        <div class="delivery-badges">${badgeClassificacaoEntrega(classif)}${badgeAssinaturaEntrega(e)}</div>
+        <div class="delivery-buttons">
+          ${pendente?`<button class="mini-action" onclick="openColetarAssinatura('${e.docId}')">Coletar assinatura</button>`:''}
+          <button class="icon-action danger" onclick="excluirEntrega('${e.docId}','${e.romaneio||''}')" title="Excluir">🗑️</button>
         </div>
       </div>
     </div>`;
@@ -543,6 +680,376 @@ function rApontamentos(){
     </div>`;
   }).join('');
 }
+
+// ===== REQUISIÇÕES (RM / RC) =====
+let rmItens=[], rcItens=[], reqSigs={}, subReq='rm';
+let almoxRMId=null, almoxItens=[], recebRMId=null, rcEditId=null, rcRecebId=null;
+let salvandoRM=false, salvandoAlmox=false, salvandoReceb=false, salvandoRC=false, salvandoRCreceb=false;
+
+function escHtml(value){
+  return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+}
+function csvCell(value){return '"'+String(value??'').replace(/"/g,'""')+'"';}
+
+function iniciarSyncReq(){
+  const qReq=query(collection(db,'requisicoes'),orderBy('timestamp','desc'));
+  onSnapshot(qReq,snap=>{
+    requisicoes=snap.docs.map(d=>({...d.data(),docId:d.id}));
+    updateReqBadge();
+    if(document.getElementById('scr-req')?.classList.contains('on')) rReq();
+    if(document.getElementById('scr-dash')?.classList.contains('on')) rDash();
+    if(document.getElementById('scr-export')?.classList.contains('on')) rExport();
+  },()=>setSync('err'));
+}
+
+async function gerarNumReq(tipo){
+  const ref=doc(db,'contadores',tipo);
+  try{
+    const novo=await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref);
+      const next=(snap.exists()?snap.data().valor:0)+1;
+      tx.set(ref,{valor:next});
+      return next;
+    });
+    return `${tipo.toUpperCase()} #${String(novo).padStart(4,'0')}`;
+  }catch{
+    return `${tipo.toUpperCase()} #${String(Date.now()).slice(-4)}`;
+  }
+}
+async function previewNumReq(tipo){
+  try{
+    const snap=await getDocs(collection(db,'contadores'));
+    const contador=snap.docs.find(item=>item.id===tipo);
+    return `${tipo.toUpperCase()} #${String((contador?contador.data().valor:0)+1).padStart(4,'0')}`;
+  }catch{return `${tipo.toUpperCase()} #0001`;}
+}
+
+function setSubReq(tipo){
+  subReq=tipo;
+  document.getElementById('sub-rm').className='subtab'+(tipo==='rm'?' on-rm':'');
+  document.getElementById('sub-rc').className='subtab'+(tipo==='rc'?' on-rc':'');
+  document.getElementById('req-rm-wrap').hidden=tipo!=='rm';
+  document.getElementById('req-rc-wrap').hidden=tipo!=='rc';
+  rReq();
+}
+window.setSubReq=setSubReq;
+
+function reqStatusLabel(status){
+  return ({aguardando_almoxarifado:'Aguardando almoxarifado',pronto_retirada:'Pronto para retirada',concluido:'Concluído',aberta:'Aberta',finalizada:'Enviada',enviada:'Enviada',recebida:'Recebida'})[status]||status||'—';
+}
+function reqStatusBadge(status){
+  const map={
+    aguardando_almoxarifado:['⏳ Aguardando almox.','a'], pronto_retirada:['📦 Pronto p/ retirada','b'],
+    concluido:['✅ Concluído','g'], aberta:['⏳ Aberta','a'], finalizada:['🛒 Enviada','b'],
+    enviada:['🛒 Enviada','b'], recebida:['✅ Recebida','g']
+  };
+  const [label,classe]=map[status]||['—','b'];
+  return `<span class="bdg ${classe}">${label}</span>`;
+}
+
+function rReq(){
+  const rms=requisicoes.filter(r=>r.tipo==='RM');
+  const rcs=requisicoes.filter(r=>r.tipo==='RC');
+  document.getElementById('rm-list').innerHTML=rms.length?rms.map(reqCardHTML).join(''):'<div class="empty">🧾 Nenhuma RM registrada ainda</div>';
+  document.getElementById('rc-list').innerHTML=rcs.length?rcs.map(reqCardHTML).join(''):'<div class="empty">🛒 Nenhuma RC registrada ainda</div>';
+}
+function reqCardHTML(req){
+  const dt=new Date(req.timestamp);
+  const itens=req.itens||[];
+  const resumo=itens.slice(0,2).map(item=>item.material).join(', ')+(itens.length>2?` +${itens.length-2}`:'');
+  return `<article class="req-card" onclick="abrirReq('${req.docId}')">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:5px">
+      <div><span class="cid">${escHtml(req.numero)}</span><div style="font-size:13px;font-weight:700;margin-top:2px">${escHtml(req.solicitante||'—')}${req.setor?' · '+escHtml(req.setor):''}</div></div>
+      ${reqStatusBadge(req.status)}
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:6px">${escHtml(resumo||'—')}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-top:7px;border-top:1px solid var(--border)"><span style="font-size:11px;color:var(--text3)">${itens.length} ${itens.length===1?'item':'itens'}</span><span class="apt">${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span></div>
+  </article>`;
+}
+
+const REQ_UNITS=['un','m','m²','m³','rolo','kg'];
+function unitOptions(selected){return REQ_UNITS.map(u=>`<option value="${u}"${u===selected?' selected':''}>${u}</option>`).join('');}
+function renderRMItens(){
+  document.getElementById('rm-itens').innerHTML=rmItens.map((item,i)=>`<div class="item-row">
+    <div class="item-row-top"><span style="font-size:11px;color:var(--text3);font-weight:700">Item ${i+1}</span>${rmItens.length>1?`<button class="item-del" onclick="delItemRM(${i})">🗑 remover</button>`:''}</div>
+    <input value="${escHtml(item.material)}" oninput="upRM(${i},'material',this.value)" placeholder="Material / produto" class="req-input">
+    <div class="qty-wrap"><div class="unit-sel"><select onchange="upRM(${i},'unid',this.value)">${unitOptions(item.unid)}</select></div><input type="number" inputmode="numeric" min="1" value="${escHtml(item.qtd)}" oninput="upRM(${i},'qtd',this.value)" placeholder="Qtd" class="req-qty"></div>
+  </div>`).join('');
+}
+window.upRM=(i,campo,valor)=>{rmItens[i][campo]=valor;};
+window.addItemRM=()=>{rmItens.push({material:'',unid:'un',qtd:''});renderRMItens();};
+window.delItemRM=i=>{rmItens.splice(i,1);if(!rmItens.length)rmItens.push({material:'',unid:'un',qtd:''});renderRMItens();};
+
+function clearSigReq(tipo){
+  const state=sigState[tipo];
+  if(!state?.ctx)return;
+  state.ctx.clearRect(0,0,state.canvas.width,state.canvas.height);
+  state.empty=true;reqSigs[tipo]='';
+  document.getElementById(`sig-hint-${tipo}`).classList.remove('hidden');
+  document.getElementById(`sig-pad-${tipo}`).classList.remove('signed');
+}
+function confirmSigReq(tipo){
+  const state=sigState[tipo];
+  if(!state?.ctx||state.empty){showToast('⚠️ Assine primeiro');return;}
+  reqSigs[tipo]=state.canvas.toDataURL('image/png');
+  document.getElementById(`sig-pad-${tipo}`).classList.add('signed');
+  showToast('✓ Assinatura confirmada');
+}
+window.clearSigReq=clearSigReq;window.confirmSigReq=confirmSigReq;
+
+function prepareReqSignature(tipo){
+  sigState[tipo]={drawing:false,empty:true,ctx:null,canvas:null};
+  setTimeout(()=>initSig(tipo),100);
+}
+async function openNovaRM(){
+  rmItens=[{material:'',unid:'un',qtd:''}];reqSigs.rmsol='';renderRMItens();
+  ['rm-solic','rm-setor','rm-obs'].forEach(id=>{document.getElementById(id).value='';});
+  const now=new Date();
+  document.getElementById('rm-data').textContent=now.toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'});
+  document.getElementById('rm-num').textContent=await previewNumReq('rm');
+  document.getElementById('modal-rm').classList.add('on');document.getElementById('mdl-rm').scrollTop=0;
+  prepareReqSignature('rmsol');
+}
+window.openNovaRM=openNovaRM;
+window.closeRM=()=>document.getElementById('modal-rm').classList.remove('on');
+window.ovClickRM=e=>{if(e.target.id==='modal-rm')window.closeRM();};
+
+async function salvarRM(){
+  if(salvandoRM)return;
+  const solicitante=document.getElementById('rm-solic').value.trim();
+  const itens=rmItens.filter(i=>i.material.trim()&&Number(i.qtd)>0);
+  if(!solicitante){showToast('⚠️ Informe o solicitante');return;}
+  if(!itens.length){showToast('⚠️ Adicione ao menos um item');return;}
+  if(!reqSigs.rmsol){showToast('⚠️ Confirme a assinatura');return;}
+  salvandoRM=true;const btn=document.querySelector('#mdl-rm .btn-g');const label=btn.textContent;btn.disabled=true;btn.textContent='⏳ Salvando...';
+  try{
+    const numero=await gerarNumReq('rm');
+    await addDoc(collection(db,'requisicoes'),{
+      tipo:'RM',numero,solicitante,setor:document.getElementById('rm-setor').value.trim(),obs:document.getElementById('rm-obs').value.trim(),
+      itens:itens.map(i=>({material:i.material.trim(),unid:i.unid||'un',qtd:Number(i.qtd),statusAlmox:null,qtdLiberada:null})),
+      sigSolicitante:reqSigs.rmsol,sigAlmox:'',sigRecebedor:'',status:'aguardando_almoxarifado',data:hoje(),timestamp:new Date().toISOString()
+    });
+    window.closeRM();showToast(`✅ ${numero} enviada ao almoxarifado`);
+  }catch(error){showToast(`⚠️ Erro ao salvar: ${error.message}`);}
+  finally{salvandoRM=false;btn.disabled=false;btn.textContent=label;}
+}
+window.salvarRM=salvarRM;
+
+function openAlmoxRM(id){
+  const req=requisicoes.find(r=>r.docId===id);if(!req)return;
+  almoxRMId=id;reqSigs.almox='';
+  almoxItens=(req.itens||[]).map(item=>({...item,statusAlmox:item.statusAlmox||null,qtdLiberada:item.qtdLiberada??null}));
+  document.getElementById('almox-num').textContent=req.numero;
+  document.getElementById('almox-solic').textContent=(req.solicitante||'—')+(req.setor?` · ${req.setor}`:'');
+  document.getElementById('almox-obs-wrap').hidden=!req.obs;document.getElementById('almox-obs').textContent=req.obs||'';
+  document.getElementById('almox-data').textContent=new Date(req.timestamp).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'});
+  document.getElementById('almox-nome').value=req.almoxarife||'';renderAlmoxItens();
+  document.getElementById('modal-almox').classList.add('on');document.getElementById('mdl-almox').scrollTop=0;prepareReqSignature('almox');
+}
+window.openAlmoxRM=openAlmoxRM;
+function renderAlmoxItens(){
+  document.getElementById('almox-itens').innerHTML=almoxItens.map((item,i)=>`<div class="item-row">
+    <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px"><strong>${escHtml(item.material)}</strong><span style="font-size:11px;color:var(--text2)">Pedido: <b>${item.qtd} ${escHtml(item.unid)}</b></span></div>
+    <div class="status-pills"><button class="st-pill${item.statusAlmox==='sim'?' on-g':''}" onclick="setAlmoxStatus(${i},'sim')">✅ Sim</button><button class="st-pill${item.statusAlmox==='parcial'?' on-a':''}" onclick="setAlmoxStatus(${i},'parcial')">⚠️ Parcial</button><button class="st-pill${item.statusAlmox==='nao'?' on-r':''}" onclick="setAlmoxStatus(${i},'nao')">❌ Não</button></div>
+    ${item.statusAlmox==='parcial'?`<label class="partial-label">Quantidade liberada<input type="number" min="1" max="${item.qtd}" value="${item.qtdLiberada??''}" oninput="upAlmoxQtd(${i},this.value)" class="req-qty partial"></label>`:''}
+  </div>`).join('');
+}
+window.setAlmoxStatus=(i,status)=>{almoxItens[i].statusAlmox=status;almoxItens[i].qtdLiberada=status==='sim'?almoxItens[i].qtd:status==='nao'?0:null;renderAlmoxItens();};
+window.upAlmoxQtd=(i,valor)=>{almoxItens[i].qtdLiberada=Math.max(0,Math.min(almoxItens[i].qtd,Number(valor)||0));};
+window.closeAlmox=()=>document.getElementById('modal-almox').classList.remove('on');
+window.ovClickAlmox=e=>{if(e.target.id==='modal-almox')window.closeAlmox();};
+
+async function salvarAlmox(){
+  if(salvandoAlmox)return;
+  if(almoxItens.some(i=>!i.statusAlmox)){showToast('⚠️ Defina o status de todos os itens');return;}
+  if(almoxItens.some(i=>i.statusAlmox==='parcial'&&(i.qtdLiberada<1||i.qtdLiberada>=i.qtd))){showToast('⚠️ A quantidade parcial deve ser menor que a pedida');return;}
+  if(!document.getElementById('almox-nome').value.trim()){showToast('⚠️ Informe o nome do almoxarife');return;}
+  if(!reqSigs.almox){showToast('⚠️ Confirme a assinatura');return;}
+  salvandoAlmox=true;const btn=document.querySelector('#mdl-almox .btn-g');const label=btn.textContent;btn.disabled=true;btn.textContent='⏳ Salvando...';
+  try{
+    const req=requisicoes.find(r=>r.docId===almoxRMId);
+    await setDoc(doc(db,'requisicoes',almoxRMId),{itens:almoxItens,almoxarife:document.getElementById('almox-nome').value.trim(),sigAlmox:reqSigs.almox,status:'pronto_retirada',timestampAlmox:new Date().toISOString()},{merge:true});
+    window.closeAlmox();showToast(`📦 ${req.numero} liberada para retirada`);
+  }catch(error){showToast(`⚠️ Erro: ${error.message}`);}
+  finally{salvandoAlmox=false;btn.disabled=false;btn.textContent=label;}
+}
+window.salvarAlmox=salvarAlmox;
+
+function itemStatusBadge(item){
+  if(item.statusAlmox==='sim')return `<span class="bdg g">✅ ${item.qtdLiberada} ${escHtml(item.unid)}</span>`;
+  if(item.statusAlmox==='parcial')return `<span class="bdg a">⚠️ ${item.qtdLiberada}/${item.qtd} ${escHtml(item.unid)}</span>`;
+  if(item.statusAlmox==='nao')return '<span class="bdg r">❌ Sem estoque</span>';
+  return '<span class="bdg b">⏳ Pendente</span>';
+}
+function sigThumb(label,image){
+  if(!String(image||'').startsWith('data:image/'))return '';
+  return `<div class="sig-thumb"><span>${escHtml(label)}</span><div><img src="${image}" alt="Assinatura: ${escHtml(label)}"></div></div>`;
+}
+function verRM(id){
+  const req=requisicoes.find(r=>r.docId===id);if(!req)return;
+  document.getElementById('ver-title').textContent=req.numero;document.getElementById('ver-sub').textContent=(req.solicitante||'—')+(req.setor?` · ${req.setor}`:'');
+  const itens=(req.itens||[]).map(item=>`<div class="item-row req-detail"><div><strong>${escHtml(item.material)}</strong><small>Pedido: ${item.qtd} ${escHtml(item.unid)}</small></div>${itemStatusBadge(item)}</div>`).join('');
+  const assinaturas=[sigThumb('Solicitante',req.sigSolicitante),sigThumb('Almoxarife',req.sigAlmox),sigThumb('Recebedor',req.sigRecebedor)].filter(Boolean).join('');
+  const rcInfo=req.rcNumero?`<div class="gap-card"><span>🛒 RC de compra gerada</span><strong>${escHtml(req.rcNumero)}</strong></div>`:req.temPendenciaCompra?`<button class="btn btn-b" style="margin-top:14px" onclick="gerarRCdeRM('${req.docId}')">🛒 Gerar RC das faltas</button>`:'';
+  document.getElementById('ver-body').innerHTML=`<div class="req-detail-head">${reqStatusBadge(req.status)}${req.obs?`<p>📝 ${escHtml(req.obs)}</p>`:''}</div>${itens}${assinaturas?`<div class="sig-thumbs">${assinaturas}</div>`:''}${rcInfo}`;
+  document.getElementById('modal-ver').classList.add('on');document.getElementById('mdl-ver').scrollTop=0;
+}
+window.verRM=verRM;window.closeVer=()=>document.getElementById('modal-ver').classList.remove('on');window.ovClickVer=e=>{if(e.target.id==='modal-ver')window.closeVer();};
+
+function openRecebRM(id){
+  const req=requisicoes.find(r=>r.docId===id);if(!req)return;
+  recebRMId=id;reqSigs.receb='';document.getElementById('receb-num').textContent=req.numero;
+  document.getElementById('receb-solic').textContent=(req.solicitante||'—')+(req.setor?` · ${req.setor}`:'');document.getElementById('receb-nome').value=req.solicitante||'';
+  document.getElementById('receb-itens').innerHTML=(req.itens||[]).map(item=>{
+    const info=item.statusAlmox==='sim'?`Retirar ${item.qtdLiberada} ${item.unid}`:item.statusAlmox==='parcial'?`Retirar ${item.qtdLiberada} de ${item.qtd} ${item.unid}`:'Indisponível (compra)';
+    const color=item.statusAlmox==='sim'?'var(--greentxt)':item.statusAlmox==='parcial'?'var(--ambertxt)':'var(--redtxt)';
+    return `<div class="item-row req-detail"><strong>${escHtml(item.material)}</strong><span style="color:${color}">${escHtml(info)}</span></div>`;
+  }).join('');
+  document.getElementById('receb-aviso').hidden=!(req.itens||[]).some(i=>i.statusAlmox==='nao'||i.statusAlmox==='parcial');
+  document.getElementById('modal-receb').classList.add('on');document.getElementById('mdl-receb').scrollTop=0;prepareReqSignature('receb');
+}
+window.openRecebRM=openRecebRM;window.closeReceb=()=>document.getElementById('modal-receb').classList.remove('on');window.ovClickReceb=e=>{if(e.target.id==='modal-receb')window.closeReceb();};
+
+async function salvarReceb(){
+  if(salvandoReceb)return;
+  const nome=document.getElementById('receb-nome').value.trim();if(!nome){showToast('⚠️ Informe quem está recebendo');return;}if(!reqSigs.receb){showToast('⚠️ Confirme a assinatura');return;}
+  salvandoReceb=true;const btn=document.querySelector('#mdl-receb .btn-g');const label=btn.textContent;btn.disabled=true;btn.textContent='⏳ Salvando...';
+  try{
+    const req=requisicoes.find(r=>r.docId===recebRMId);const temFalta=(req.itens||[]).some(i=>i.statusAlmox==='nao'||i.statusAlmox==='parcial');
+    await setDoc(doc(db,'requisicoes',recebRMId),{recebedor:nome,sigRecebedor:reqSigs.receb,status:'concluido',rcGerada:false,temPendenciaCompra:temFalta,timestampReceb:new Date().toISOString()},{merge:true});
+    if(temFalta)await gerarRCdeRM(recebRMId,true);
+    window.closeReceb();showToast(`✅ ${req.numero} concluída${temFalta?' — RC gerada':''}`);
+  }catch(error){showToast(`⚠️ Erro: ${error.message}`);}
+  finally{salvandoReceb=false;btn.disabled=false;btn.textContent=label;}
+}
+window.salvarReceb=salvarReceb;
+
+function abrirReq(id){
+  const req=requisicoes.find(r=>r.docId===id);if(!req)return;
+  if(req.tipo==='RC'){req.status==='aberta'?openFinalizarRC(id):verRC(id);return;}
+  if(req.status==='aguardando_almoxarifado'){openAlmoxRM(id);return;}
+  if(req.status==='pronto_retirada'){openRecebRM(id);return;}
+  verRM(id);
+}
+window.abrirReq=abrirReq;
+
+async function gerarRCdeRM(rmId,silencioso=false){
+  const req=requisicoes.find(r=>r.docId===rmId);if(!req)return;
+  if(req.rcGerada){if(!silencioso)showToast('ℹ️ RC já gerada para esta RM');return;}
+  const faltas=(req.itens||[]).filter(i=>i.statusAlmox==='nao'||i.statusAlmox==='parcial').map(i=>({material:i.material,unid:i.unid,qtd:i.statusAlmox==='nao'?i.qtd:i.qtd-(i.qtdLiberada||0),origem:i.statusAlmox})).filter(i=>i.qtd>0);
+  if(!faltas.length){await setDoc(doc(db,'requisicoes',rmId),{rcGerada:true,temPendenciaCompra:false},{merge:true});if(!silencioso)showToast('ℹ️ Nenhuma falta para compra');return;}
+  const numero=await gerarNumReq('rc');
+  await addDoc(collection(db,'requisicoes'),{tipo:'RC',numero,origemRM:req.numero,origemRMId:rmId,solicitante:req.solicitante,setor:req.setor||'',obs:req.obs||'',itens:faltas,sigSolicitante:'',status:'aberta',data:hoje(),timestamp:new Date().toISOString()});
+  await setDoc(doc(db,'requisicoes',rmId),{rcGerada:true,rcNumero:numero},{merge:true});
+  if(!silencioso){window.closeVer();showToast(`🛒 ${numero} gerada das faltas de ${req.numero}`);}
+}
+window.gerarRCdeRM=gerarRCdeRM;
+
+function renderRCItens(){
+  document.getElementById('rc-itens').innerHTML=rcItens.map((item,i)=>`<div class="item-row">
+    <div class="item-row-top"><span style="font-size:11px;color:var(--text3);font-weight:700">Item ${i+1}${item.origem==='nao'?' · sem estoque':item.origem==='parcial'?' · faltante':''}</span>${rcItens.length>1?`<button class="item-del" onclick="delItemRC(${i})">🗑 remover</button>`:''}</div>
+    <input value="${escHtml(item.material)}" oninput="upRC(${i},'material',this.value)" placeholder="Material / produto" class="req-input">
+    <div class="qty-wrap"><div class="unit-sel"><select onchange="upRC(${i},'unid',this.value)">${unitOptions(item.unid)}</select></div><input type="number" min="1" value="${escHtml(item.qtd)}" oninput="upRC(${i},'qtd',this.value)" placeholder="Qtd" class="req-qty"></div>
+  </div>`).join('');
+}
+window.upRC=(i,campo,valor)=>{rcItens[i][campo]=valor;};window.addItemRC=()=>{rcItens.push({material:'',unid:'un',qtd:'',origem:'manual'});renderRCItens();};window.delItemRC=i=>{rcItens.splice(i,1);if(!rcItens.length)rcItens.push({material:'',unid:'un',qtd:'',origem:'manual'});renderRCItens();};
+
+async function openNovaRC(){
+  rcEditId=null;rcItens=[{material:'',unid:'un',qtd:'',origem:'manual'}];reqSigs.rcsol='';renderRCItens();
+  document.getElementById('rc-title').textContent='Nova requisição de compra';document.getElementById('rc-sub').textContent='Solicitação ao setor de compras';
+  ['rc-solic','rc-setor','rc-obs'].forEach(id=>{document.getElementById(id).value='';});
+  const now=new Date();document.getElementById('rc-data').textContent=now.toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'});document.getElementById('rc-num').textContent=await previewNumReq('rc');
+  document.getElementById('modal-rc').classList.add('on');document.getElementById('mdl-rc').scrollTop=0;prepareReqSignature('rcsol');
+}
+window.openNovaRC=openNovaRC;
+function openFinalizarRC(id){
+  const req=requisicoes.find(r=>r.docId===id);if(!req)return;
+  rcEditId=id;rcItens=(req.itens||[]).map(item=>({...item,origem:item.origem||'manual'}));if(!rcItens.length)rcItens=[{material:'',unid:'un',qtd:'',origem:'manual'}];reqSigs.rcsol='';renderRCItens();
+  document.getElementById('rc-title').textContent=`Finalizar ${req.numero}`;document.getElementById('rc-sub').textContent=req.origemRM?`Gerada da ${req.origemRM} — confira e assine`:'Confira os itens e assine';
+  document.getElementById('rc-solic').value=req.solicitante||'';document.getElementById('rc-setor').value=req.setor||'';document.getElementById('rc-obs').value=req.obs||'';document.getElementById('rc-num').textContent=req.numero;document.getElementById('rc-data').textContent=new Date(req.timestamp).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'});
+  document.getElementById('modal-rc').classList.add('on');document.getElementById('mdl-rc').scrollTop=0;prepareReqSignature('rcsol');
+}
+window.openFinalizarRC=openFinalizarRC;window.closeRC=()=>document.getElementById('modal-rc').classList.remove('on');window.ovClickRC=e=>{if(e.target.id==='modal-rc')window.closeRC();};
+
+async function salvarRC(){
+  if(salvandoRC)return;
+  const solicitante=document.getElementById('rc-solic').value.trim();const itens=rcItens.filter(i=>i.material.trim()&&Number(i.qtd)>0);
+  if(!solicitante){showToast('⚠️ Informe o solicitante');return;}if(!itens.length){showToast('⚠️ Adicione ao menos um item');return;}if(!reqSigs.rcsol){showToast('⚠️ Confirme a assinatura');return;}
+  salvandoRC=true;const btn=document.querySelector('#mdl-rc .btn-g');const label=btn.textContent;btn.disabled=true;btn.textContent='⏳ Gerando...';
+  try{
+    const payload={solicitante,setor:document.getElementById('rc-setor').value.trim(),obs:document.getElementById('rc-obs').value.trim(),itens:itens.map(i=>({material:i.material.trim(),unid:i.unid||'un',qtd:Number(i.qtd),origem:i.origem||'manual'})),sigSolicitante:reqSigs.rcsol,status:'finalizada',timestampFinal:new Date().toISOString()};
+    let rcDoc;
+    if(rcEditId){const anterior=requisicoes.find(r=>r.docId===rcEditId);await setDoc(doc(db,'requisicoes',rcEditId),payload,{merge:true});rcDoc={...anterior,...payload};}
+    else{rcDoc={...payload,tipo:'RC',numero:await gerarNumReq('rc'),origemRM:null,data:hoje(),timestamp:new Date().toISOString()};await addDoc(collection(db,'requisicoes'),rcDoc);}
+    window.closeRC();showToast(`📄 ${rcDoc.numero} finalizada`);await compartilharPDF(rcDoc);
+  }catch(error){showToast(`⚠️ Erro: ${error.message}`);}
+  finally{salvandoRC=false;btn.disabled=false;btn.textContent=label;}
+}
+window.salvarRC=salvarRC;
+
+function verRC(id){
+  const req=requisicoes.find(r=>r.docId===id);if(!req)return;
+  document.getElementById('ver-title').textContent=req.numero;document.getElementById('ver-sub').textContent=(req.solicitante||'—')+(req.origemRM?` · origem ${req.origemRM}`:' · manual');
+  const itens=(req.itens||[]).map(item=>`<div class="item-row req-detail"><div><strong>${escHtml(item.material)}</strong>${item.origem!=='manual'?`<small>${item.origem==='nao'?'Sem estoque':'Quantidade faltante'}</small>`:''}</div><span class="rc-qty">${item.qtd} ${escHtml(item.unid)}</span></div>`).join('');
+  let actions='';
+  if(req.status==='aberta')actions=`<button class="btn btn-g" style="margin-top:12px" onclick="closeVer();openFinalizarRC('${req.docId}')">✍️ Assinar e finalizar</button>`;
+  else{
+    actions=`${req.sigSolicitante?`<div class="sig-thumbs">${sigThumb('Solicitante',req.sigSolicitante)}</div>`:''}<button class="btn btn-b" style="margin-top:12px" onclick="baixarRCPDF('${req.docId}')">📄 Baixar / enviar PDF</button>`;
+    actions+=req.status==='recebida'?`<div class="receipt-ok">📥 Recebido por ${escHtml(req.comprador||'—')}${req.notaFiscal?' · NF '+escHtml(req.notaFiscal):''}</div>`:`<button class="btn btn-g" style="margin-top:8px" onclick="closeVer();openRecebRC('${req.docId}')">📥 Lançar recebimento</button>`;
+  }
+  document.getElementById('ver-body').innerHTML=`<div class="req-detail-head">${reqStatusBadge(req.status)}${req.origemRM?`<p>Gerada automaticamente das faltas da ${escHtml(req.origemRM)}</p>`:''}</div>${itens}${actions}`;
+  document.getElementById('modal-ver').classList.add('on');document.getElementById('mdl-ver').scrollTop=0;
+}
+window.verRC=verRC;
+
+async function darkenSig(dataURL){
+  if(!dataURL)return '';
+  return new Promise(resolve=>{const img=new Image();img.onload=()=>{try{const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);for(let i=0;i<pixels.data.length;i+=4){if(pixels.data[i+3]>10){pixels.data[i]=20;pixels.data[i+1]=24;pixels.data[i+2]=28;}}ctx.putImageData(pixels,0,0);resolve(canvas.toDataURL('image/png'));}catch{resolve(dataURL);}};img.onerror=()=>resolve(dataURL);img.src=dataURL;});
+}
+async function compartilharPDF(rc){
+  if(!window.jspdf){showToast('⚠️ Biblioteca de PDF indisponível');return;}
+  const {jsPDF}=window.jspdf;const pdf=new jsPDF({unit:'mm',format:'a4'});const W=210,M=16;let y=18;
+  pdf.setFontSize(9);pdf.setTextColor(120);pdf.text('Sistema AMZP — Gestão Industrial',M,y);pdf.setFont(undefined,'bold');pdf.setFontSize(18);pdf.setTextColor(20);pdf.text('REQUISIÇÃO DE COMPRA',M,y+10);pdf.setFontSize(13);pdf.setTextColor(190,140,10);pdf.text(rc.numero,W-M,y+10,{align:'right'});y+=26;
+  pdf.setFont(undefined,'normal');pdf.setFontSize(10);pdf.setTextColor(60);const dt=new Date(rc.timestamp||Date.now());pdf.text(`Solicitante: ${rc.solicitante||'-'}`,M,y);pdf.text(`Data: ${dt.toLocaleString('pt-BR')}`,W-M,y,{align:'right'});y+=6;pdf.text(`Setor: ${rc.setor||'-'}`,M,y);if(rc.origemRM)pdf.text(`Origem: ${rc.origemRM}`,W-M,y,{align:'right'});y+=10;
+  pdf.setFillColor(238);pdf.rect(M,y-5,W-2*M,8,'F');pdf.setFont(undefined,'bold');pdf.setTextColor(40);pdf.text('ITEM',M+2,y);pdf.text('MATERIAL',M+14,y);pdf.text('UNID.',W-M-38,y);pdf.text('QTD',W-M-2,y,{align:'right'});y+=8;pdf.setFont(undefined,'normal');pdf.setTextColor(30);
+  (rc.itens||[]).forEach((item,i)=>{if(y>265){pdf.addPage();y=20;}pdf.text(String(i+1),M+2,y);pdf.text(String(item.material||'').slice(0,55),M+14,y);pdf.text(String(item.unid||''),W-M-38,y);pdf.text(String(item.qtd),W-M-2,y,{align:'right'});pdf.setDrawColor(235);pdf.line(M,y+2.5,W-M,y+2.5);y+=8;});
+  if(rc.obs){y+=4;pdf.setFontSize(9);pdf.setTextColor(90);pdf.text(`Obs: ${String(rc.obs).slice(0,100)}`,M,y);y+=8;}y+=16;
+  const sig=await darkenSig(rc.sigSolicitante);if(sig){try{pdf.addImage(sig,'PNG',M,y-14,50,16);}catch{}}
+  pdf.setDrawColor(140);pdf.line(M,y,M+62,y);pdf.setFontSize(9);pdf.text('Assinatura do solicitante',M,y+5);
+  const blob=pdf.output('blob');const filename=`${String(rc.numero||'RC').replace(/[#\s]/g,'_')}.pdf`;const file=new File([blob],filename,{type:'application/pdf'});
+  if(navigator.canShare?.({files:[file]})){try{await navigator.share({files:[file],title:rc.numero,text:`Requisição de compra ${rc.numero}`});return;}catch(error){if(error?.name==='AbortError')return;}}
+  const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);showToast('📄 PDF baixado');
+}
+window.compartilharPDF=compartilharPDF;
+window.baixarRCPDF=id=>{const rc=requisicoes.find(req=>req.docId===id);if(rc)compartilharPDF(rc);};
+
+function openRecebRC(id){
+  const req=requisicoes.find(r=>r.docId===id);if(!req)return;rcRecebId=id;
+  document.getElementById('rcreceb-num').textContent=req.numero;document.getElementById('rcreceb-resumo').textContent=`${(req.itens||[]).length} ${(req.itens||[]).length===1?'item':'itens'}`;document.getElementById('rcreceb-data').textContent=new Date().toLocaleDateString('pt-BR');
+  document.getElementById('rcreceb-comprador').value=req.comprador||'';document.getElementById('rcreceb-nf').value=req.notaFiscal||'';document.getElementById('rcreceb-obs').value=req.obsRecebimento||'';
+  document.getElementById('modal-rcreceb').classList.add('on');document.getElementById('mdl-rcreceb').scrollTop=0;
+}
+window.openRecebRC=openRecebRC;window.closeRCreceb=()=>document.getElementById('modal-rcreceb').classList.remove('on');window.ovClickRCreceb=e=>{if(e.target.id==='modal-rcreceb')window.closeRCreceb();};
+async function salvarRecebRC(){
+  if(salvandoRCreceb)return;const comprador=document.getElementById('rcreceb-comprador').value.trim();if(!comprador){showToast('⚠️ Informe o responsável');return;}
+  salvandoRCreceb=true;const btn=document.querySelector('#mdl-rcreceb .btn-g');const label=btn.textContent;btn.disabled=true;btn.textContent='⏳ Salvando...';
+  try{const req=requisicoes.find(r=>r.docId===rcRecebId);await setDoc(doc(db,'requisicoes',rcRecebId),{comprador,notaFiscal:document.getElementById('rcreceb-nf').value.trim(),obsRecebimento:document.getElementById('rcreceb-obs').value.trim(),status:'recebida',timestampRecebimento:new Date().toISOString()},{merge:true});window.closeRCreceb();showToast(`✅ ${req.numero} recebida`);}catch(error){showToast(`⚠️ Erro: ${error.message}`);}finally{salvandoRCreceb=false;btn.disabled=false;btn.textContent=label;}
+}
+window.salvarRecebRC=salvarRecebRC;
+
+function rReqDash(){
+  const metrics=document.getElementById('d-req-metrics');if(!metrics)return;
+  const reqs=filtrarPorPeriodo(requisicoes),rms=reqs.filter(r=>r.tipo==='RM'),rcs=reqs.filter(r=>r.tipo==='RC');
+  const rmPend=rms.filter(r=>r.status!=='concluido').length,rmOk=rms.length-rmPend,rcAbertas=rcs.filter(r=>r.status==='aberta').length,rcEnviadas=rcs.filter(r=>r.status==='finalizada'||r.status==='enviada').length,rcRecebidas=rcs.filter(r=>r.status==='recebida').length;
+  metrics.innerHTML=`<div class="mc"><div class="ml">RMs</div><div class="mv" style="color:var(--greentxt)">${rms.length}</div><div class="ms">${rmPend} em aberto</div></div><div class="mc"><div class="ml">RMs concluídas</div><div class="mv" style="color:var(--bluetxt)">${rmOk}</div><div class="ms">no período</div></div><div class="mc"><div class="ml">RCs de compra</div><div class="mv" style="color:var(--ambertxt)">${rcs.length}</div><div class="ms">${rcAbertas} para assinar</div></div><div class="mc"><div class="ml">RCs recebidas</div><div class="mv" style="color:var(--greentxt)">${rcRecebidas}</div><div class="ms">${rcEnviadas} enviadas</div></div>`;
+  const barras=[['⏳ A assinar',rcAbertas,'var(--amber)'],['🛒 Enviadas',rcEnviadas,'var(--blue)'],['✅ Recebidas',rcRecebidas,'var(--green)']],total=rcs.length||1;
+  document.getElementById('d-req-bars').innerHTML=`<div class="obar"><div class="chart-title">Status das compras (RC)</div>${barras.map(([label,value,color])=>`<div class="req-bar"><div><span>${label}</span><b>${value} / ${rcs.length}</b></div><i><span style="width:${pct(value,total)}%;background:${color}"></span></i></div>`).join('')}</div>`;
+}
+function updateReqBadge(){
+  const badge=document.getElementById('req-badge');if(!badge)return;const pendentes=requisicoes.filter(r=>(r.tipo==='RM'&&r.status!=='concluido')||(r.tipo==='RC'&&r.status!=='recebida')).length;
+  badge.hidden=pendentes===0;badge.textContent=pendentes>99?'99+':String(pendentes);
+}
+window.rReqDash=rReqDash;window.updateReqBadge=updateReqBadge;
 
 // ===== DASHBOARD =====
 function filtrarPorPeriodo(items){
@@ -576,11 +1083,11 @@ function rDash(){
 
   const entFiltradas=filtrarPorPeriodo(entregas);
   const entHoje=entFiltradas.length;
-  const volEnt=entFiltradas.filter(e=>e.status!=='Devolvido').reduce((s,e)=>s+(e.qtd||0),0);
-  const semAss=entFiltradas.filter(e=>!e.sigCli).length;
-  const devs=entFiltradas.filter(e=>e.status==='Devolvido').length;
-  const parc=entFiltradas.filter(e=>e.status==='Parcial').length;
-  const compl=entFiltradas.filter(e=>e.status==='Entregue').length;
+  const volEnt=entFiltradas.filter(e=>classificacaoEntrega(e)!=='Devolução').reduce((s,e)=>s+(e.qtd||0),0);
+  const semAss=entFiltradas.filter(e=>statusAssinaturaEntrega(e)==='Aguardando assinatura').length;
+  const devs=entFiltradas.filter(e=>classificacaoEntrega(e)==='Devolução').length;
+  const parc=entFiltradas.filter(e=>classificacaoEntrega(e)==='Parcial').length;
+  const compl=entFiltradas.filter(e=>classificacaoEntrega(e)==='Concluída').length;
   const totEnt=entFiltradas.length;
   document.getElementById('d-ent-metrics').innerHTML=`
     <div class="mc"><div class="ml">Entregas</div><div class="mv" style="color:var(--greentxt)">${entHoje}</div><div class="ms">no período</div></div>
@@ -590,7 +1097,7 @@ function rDash(){
   const entBars=[{l:'✅ Completas',v:compl,c:'var(--green)'},{l:'⚠️ Parciais',v:parc,c:'var(--amber)'},{l:'↩️ Devoluções',v:devs,c:'var(--red)'}];
   document.getElementById('d-ent-bars').innerHTML=`<div class="obar"><div style="font-size:10px;color:var(--text2);margin-bottom:8px;font-weight:600">Status das entregas</div>${entBars.map(b=>`<div style="margin-bottom:7px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span style="color:var(--text2)">${b.l}</span><span style="font-family:var(--mono);color:var(--text)">${b.v} / ${totEnt||1}</span></div><div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden"><div style="width:${pct(b.v,totEnt||1)}%;height:100%;background:${b.c}"></div></div></div>`).join('')}</div>`;
 
-  const totalEnt=entregas.filter(e=>e.status!=='Devolvido').reduce((s,e)=>s+(e.qtd||0),0);
+  const totalEnt=entregas.filter(e=>classificacaoEntrega(e)!=='Devolução').reduce((s,e)=>s+(e.qtd||0),0);
   const estoque=totProd-totalEnt;
   document.getElementById('d-comparativo').innerHTML=`<div class="obar">
     <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span style="color:var(--text2)">📦 Total pedido</span><span style="font-family:var(--mono);font-weight:600;color:var(--text)">${totP.toLocaleString('pt-BR')} un</span></div><div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="width:100%;height:100%;background:var(--border2)"></div></div></div>
@@ -598,6 +1105,8 @@ function rDash(){
     <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span style="color:var(--bluetxt)">🚚 Entregue</span><span style="font-family:var(--mono);font-weight:600;color:var(--bluetxt)">${totalEnt.toLocaleString('pt-BR')} un · ${pct(totalEnt,totP)}%</span></div><div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="width:${pct(totalEnt,totP)}%;height:100%;background:var(--blue)"></div></div></div>
     <div class="gap-card"><span style="font-size:11px;color:var(--purple)">📊 Em estoque (produzido não entregue)</span><span style="font-size:12px;font-weight:700;color:var(--purple);font-family:var(--mono)">${Math.max(0,estoque).toLocaleString('pt-BR')} un</span></div>
   </div>`;
+
+  rReqDash();
 
   const ativ=[
     ...apFiltrados.map(a=>({tipo:'prod',ts:a.timestamp,...a})),
@@ -622,7 +1131,8 @@ function rExport(){
   document.getElementById('exp-preview').innerHTML=`
     <div class="aba-item"><span class="aba-icon">📋</span><div class="aba-info"><div class="aba-name">Pedidos</div><div class="aba-desc">Ordens com progresso e status</div></div><span class="aba-badge">${pedidos.length} linhas</span></div>
     <div class="aba-item"><span class="aba-icon">📝</span><div class="aba-info"><div class="aba-name">Apontamentos</div><div class="aba-desc">Registros de produção</div></div><span class="aba-badge">${apontamentos.length} linhas</span></div>
-    <div class="aba-item"><span class="aba-icon">🚚</span><div class="aba-info"><div class="aba-name">Entregas</div><div class="aba-desc">Romaneios e saídas</div></div><span class="aba-badge">${entregas.length} linhas</span></div>`;
+    <div class="aba-item"><span class="aba-icon">🚚</span><div class="aba-info"><div class="aba-name">Entregas</div><div class="aba-desc">Romaneios e saídas</div></div><span class="aba-badge">${entregas.length} linhas</span></div>
+    <div class="aba-item"><span class="aba-icon">🧾</span><div class="aba-info"><div class="aba-name">Requisições</div><div class="aba-desc">RM e RC com status e itens</div></div><span class="aba-badge">${requisicoes.length} linhas</span></div>`;
 }
 window.exportarCSV=function(){
   const h1=['Nº OP','Produto','Cliente','Qtd Pedida','Unid','Data Pedido','Prazo','Qtd Produzida','Qtd Entregue','% Concluído','Status'];
@@ -632,9 +1142,11 @@ window.exportarCSV=function(){
   });
   const h2=['Data/Hora','Nº OP','Produto','Cliente','Turno','Operador','Qtd','Unid','Observações'];
   const r2=apontamentos.map(a=>[new Date(a.timestamp).toLocaleString('pt-BR'),a.pedidoId,a.produto,a.cliente,a.turno,a.operador,a.qtd,a.unid,(a.obs||'').replace(/;/g,',')].join(';'));
-  const h3=['Romaneio','Data','Nº OP','Cliente','Produto','Qtd','Unid','Entregador','Conferente','Veículo','Destino','Status','Assinatura Cliente','Obs'];
-  const r3=entregas.map(e=>[e.romaneio,new Date(e.timestamp).toLocaleString('pt-BR'),e.pedidoId,e.cliente,e.produto,e.qtd,e.unid,e.entregador,e.conferente,e.veiculo,e.destino,e.status,(e.sigCli?'Sim':'Não'),(e.obs||'').replace(/;/g,',')].join(';'));
-  const csv='\uFEFF'+'=== PEDIDOS ===\n'+[h1.join(';'),...r1].join('\n')+'\n\n=== APONTAMENTOS ===\n'+[h2.join(';'),...r2].join('\n')+'\n\n=== ENTREGAS ===\n'+[h3.join(';'),...r3].join('\n');
+  const h3=['Romaneio','Data','Nº OP','Cliente','Produto','Qtd','Unid','Entregador','Conferente','Veículo','Destino','Classificação','Status assinatura','Estoque antes saída','Estoque depois saída','Obs'];
+  const r3=entregas.map(e=>[e.romaneio,new Date(e.timestamp).toLocaleString('pt-BR'),e.pedidoId,e.cliente,e.produto,e.qtd,e.unid,e.entregador,e.conferente,e.veiculo,e.destino,classificacaoEntrega(e),statusAssinaturaEntrega(e),fmtQtd(qtdEmEmpresaAntesEntrega(e),e.unid),fmtQtd(qtdEmEmpresaDepoisEntrega(e),e.unid),(e.obs||'').replace(/;/g,',')].join(';'));
+  const h4=['Tipo','Número','Data/Hora','Solicitante','Setor','Status','Origem RM','Itens','Observação'];
+  const r4=requisicoes.map(r=>[r.tipo,r.numero,new Date(r.timestamp).toLocaleString('pt-BR'),r.solicitante,r.setor,reqStatusLabel(r.status),r.origemRM||'',(r.itens||[]).map(i=>`${i.material} (${i.qtd} ${i.unid})`).join(' | '),(r.obs||'').replace(/;/g,',')].map(csvCell).join(';'));
+  const csv='\uFEFF'+'=== PEDIDOS ===\n'+[h1.join(';'),...r1].join('\n')+'\n\n=== APONTAMENTOS ===\n'+[h2.join(';'),...r2].join('\n')+'\n\n=== ENTREGAS ===\n'+[h3.join(';'),...r3].join('\n')+'\n\n=== REQUISIÇÕES ===\n'+[h4.join(';'),...r4].join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -656,6 +1168,7 @@ function updateTopbar(){
 // ===== INIT =====
 updateTopbar();
 iniciarSync();
+iniciarSyncReq();
 setInterval(updateTopbar,30000);
 
 // Esconde splash quando carregar

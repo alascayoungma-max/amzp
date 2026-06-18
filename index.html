@@ -70,6 +70,28 @@
     <div id="entregas-list"></div>
   </div>
 
+  <!-- REQUISIÇÕES DE MATERIAL E COMPRA -->
+  <div class="scr" id="scr-req">
+    <div class="subtabs">
+      <button class="subtab on-rm" id="sub-rm" onclick="setSubReq('rm')">📥 RM · Material</button>
+      <button class="subtab" id="sub-rc" onclick="setSubReq('rc')">🛒 RC · Compra</button>
+    </div>
+    <div id="req-rm-wrap">
+      <div class="screen-heading">
+        <div class="slbl">Requisições de material</div>
+        <button class="btn-novo" onclick="openNovaRM()">+ Nova RM</button>
+      </div>
+      <div id="rm-list"></div>
+    </div>
+    <div id="req-rc-wrap" hidden>
+      <div class="screen-heading">
+        <div class="slbl">Requisições de compra</div>
+        <button class="btn-novo" onclick="openNovaRC()">+ Nova RC</button>
+      </div>
+      <div id="rc-list"></div>
+    </div>
+  </div>
+
   <!-- DASHBOARD -->
   <div class="scr" id="scr-dash">
     <div class="frow">
@@ -89,6 +111,10 @@
 
     <div class="sec-h"><div class="sec-bar" style="background:var(--purple)"></div><div class="sec-t" style="color:var(--purple)">📈 Produção vs Entrega</div></div>
     <div id="d-comparativo" style="margin-bottom:14px"></div>
+
+    <div class="sec-h"><div class="sec-bar" style="background:var(--amber)"></div><div class="sec-t" style="color:var(--ambertxt)">🧾 Requisições</div></div>
+    <div class="mgrid" id="d-req-metrics"></div>
+    <div id="d-req-bars" style="margin-bottom:14px"></div>
 
     <div class="sec-h"><div class="sec-bar" style="background:var(--border2)"></div><div class="sec-t" style="color:var(--text2)">🕐 Atividade recente</div></div>
     <div id="d-atividade"></div>
@@ -110,9 +136,95 @@
     <button class="nb on" onclick="showScr('pedidos',this)"><span class="ni">📋</span>Pedidos</button>
     <button class="nb" onclick="showScr('ap',this)"><span class="ni">📝</span>Registros</button>
     <button class="nb" onclick="showScr('entrega',this)"><span class="ni">🚚</span>Entrega</button>
+    <button class="nb" onclick="showScr('req',this)"><span class="ni">🧾</span>Requisição<span id="req-badge" class="nav-badge" hidden></span></button>
     <button class="nb" onclick="showScr('dash',this)"><span class="ni">📊</span>Dashboard</button>
     <button class="nb" onclick="showScr('export',this)"><span class="ni">⬇️</span>Exportar</button>
   </nav>
+</div>
+
+<!-- MODAL NOVA RM -->
+<div class="ov" id="modal-rm" onclick="ovClickRM(event)">
+  <div class="mdl" id="mdl-rm">
+    <div class="mhnd"></div>
+    <div class="mtit">Nova requisição de material</div>
+    <div class="msub">Solicitação interna ao almoxarifado</div>
+    <div class="req-head">
+      <div class="req-head-box rm"><span class="req-head-lbl">RM nº</span><strong id="rm-num">RM #0001</strong></div>
+      <div class="req-head-box"><span class="req-head-lbl">Data / hora</span><span id="rm-data">—</span></div>
+    </div>
+    <div class="fld"><label>Solicitante</label><input type="text" id="rm-solic" placeholder="Seu nome"></div>
+    <div class="form-grid">
+      <div class="fld"><label>Setor</label><input type="text" id="rm-setor" placeholder="Ex: Produção"></div>
+      <div class="fld"><label>Observação</label><input type="text" id="rm-obs" placeholder="Opcional"></div>
+    </div>
+    <label class="field-label">Itens solicitados</label>
+    <div id="rm-itens"></div>
+    <button class="btn btn-s compact" onclick="addItemRM()">+ Adicionar item</button>
+    <div class="fld signature-field">
+      <label>Assinatura do solicitante</label>
+      <div class="sig-pad" id="sig-pad-rmsol"><canvas id="sig-canvas-rmsol"></canvas><div class="sig-hint" id="sig-hint-rmsol"><span>✍️</span><span>Assine com o dedo aqui</span></div></div>
+      <div class="sig-btns"><button class="sig-btn" onclick="clearSigReq('rmsol')">🗑 Limpar</button><button class="sig-btn ok" onclick="confirmSigReq('rmsol')">✓ Confirmar</button></div>
+    </div>
+    <button class="btn btn-g" onclick="salvarRM()">✓ Enviar para o almoxarifado</button>
+    <button class="btn btn-s" onclick="closeRM()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL CONFERÊNCIA DO ALMOXARIFADO -->
+<div class="ov" id="modal-almox" onclick="ovClickAlmox(event)">
+  <div class="mdl" id="mdl-almox">
+    <div class="mhnd"></div><div class="mtit">Conferência do almoxarifado</div><div class="msub" id="almox-num">RM #0001</div>
+    <div class="info-card">
+      <div class="irow"><span class="ilbl">Solicitante</span><span class="ival" id="almox-solic">—</span></div>
+      <div class="irow" id="almox-obs-wrap" hidden><span class="ilbl">Observação</span><span class="ival regular" id="almox-obs">—</span></div>
+      <div class="irow"><span class="ilbl">Data</span><span class="ival" id="almox-data">—</span></div>
+    </div>
+    <label class="field-label">Itens — informe a disponibilidade</label>
+    <div id="almox-itens"></div>
+    <div class="fld signature-field"><label>Nome do almoxarife</label><input type="text" id="almox-nome" placeholder="Quem está conferindo"></div>
+    <div class="fld"><label>Assinatura do almoxarife</label><div class="sig-pad" id="sig-pad-almox"><canvas id="sig-canvas-almox"></canvas><div class="sig-hint" id="sig-hint-almox"><span>✍️</span><span>Assine com o dedo aqui</span></div></div><div class="sig-btns"><button class="sig-btn" onclick="clearSigReq('almox')">🗑 Limpar</button><button class="sig-btn ok" onclick="confirmSigReq('almox')">✓ Confirmar</button></div></div>
+    <button class="btn btn-g" onclick="salvarAlmox()">📦 Liberar para retirada</button><button class="btn btn-s" onclick="closeAlmox()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL RECEBIMENTO DA RM -->
+<div class="ov" id="modal-receb" onclick="ovClickReceb(event)">
+  <div class="mdl" id="mdl-receb">
+    <div class="mhnd"></div><div class="mtit">Confirmar recebimento</div><div class="msub" id="receb-num">RM #0001</div>
+    <div class="info-card"><div class="irow"><span class="ilbl">Solicitante</span><span class="ival" id="receb-solic">—</span></div></div>
+    <label class="field-label">Materiais liberados pelo almoxarifado</label><div id="receb-itens"></div>
+    <div class="req-warning" id="receb-aviso" hidden>⚠️ Itens não atendidos por completo serão enviados para uma RC de compra.</div>
+    <div class="fld signature-field"><label>Nome de quem está recebendo</label><input type="text" id="receb-nome" placeholder="Nome do recebedor"></div>
+    <div class="fld"><label>Assinatura no recebimento</label><div class="sig-pad" id="sig-pad-receb"><canvas id="sig-canvas-receb"></canvas><div class="sig-hint" id="sig-hint-receb"><span>✍️</span><span>Confirme o recebimento</span></div></div><div class="sig-btns"><button class="sig-btn" onclick="clearSigReq('receb')">🗑 Limpar</button><button class="sig-btn ok" onclick="confirmSigReq('receb')">✓ Confirmar</button></div></div>
+    <button class="btn btn-g" onclick="salvarReceb()">✓ Concluir recebimento</button><button class="btn btn-s" onclick="closeReceb()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL RC -->
+<div class="ov" id="modal-rc" onclick="ovClickRC(event)">
+  <div class="mdl" id="mdl-rc">
+    <div class="mhnd"></div><div class="mtit" id="rc-title">Nova requisição de compra</div><div class="msub" id="rc-sub">Solicitação ao setor de compras</div>
+    <div class="req-head"><div class="req-head-box rc"><span class="req-head-lbl">RC nº</span><strong id="rc-num">RC #0001</strong></div><div class="req-head-box"><span class="req-head-lbl">Data / hora</span><span id="rc-data">—</span></div></div>
+    <div class="fld"><label>Solicitante</label><input type="text" id="rc-solic" placeholder="Seu nome"></div>
+    <div class="form-grid"><div class="fld"><label>Setor</label><input type="text" id="rc-setor" placeholder="Ex: Produção"></div><div class="fld"><label>Observação</label><input type="text" id="rc-obs" placeholder="Opcional"></div></div>
+    <label class="field-label">Itens para compra</label><div id="rc-itens"></div><button class="btn btn-s compact" onclick="addItemRC()">+ Adicionar item</button>
+    <div class="fld signature-field"><label>Assinatura do solicitante</label><div class="sig-pad" id="sig-pad-rcsol"><canvas id="sig-canvas-rcsol"></canvas><div class="sig-hint" id="sig-hint-rcsol"><span>✍️</span><span>Assine com o dedo aqui</span></div></div><div class="sig-btns"><button class="sig-btn" onclick="clearSigReq('rcsol')">🗑 Limpar</button><button class="sig-btn ok-amber" onclick="confirmSigReq('rcsol')">✓ Confirmar</button></div></div>
+    <button class="btn btn-g" onclick="salvarRC()">✓ Finalizar requisição de compra</button><button class="btn btn-s" onclick="closeRC()">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL DETALHES DA REQUISIÇÃO -->
+<div class="ov" id="modal-ver" onclick="ovClickVer(event)"><div class="mdl" id="mdl-ver"><div class="mhnd"></div><div class="mtit" id="ver-title">Requisição</div><div class="msub" id="ver-sub">—</div><div id="ver-body"></div><button class="btn btn-s" onclick="closeVer()">Fechar</button></div></div>
+
+<!-- MODAL RECEBIMENTO DA COMPRA -->
+<div class="ov" id="modal-rcreceb" onclick="ovClickRCreceb(event)">
+  <div class="mdl" id="mdl-rcreceb"><div class="mhnd"></div><div class="mtit">Recebimento da compra</div><div class="msub" id="rcreceb-num">RC #0001</div>
+    <div class="req-head"><div class="req-head-box"><span class="req-head-lbl">Itens</span><strong id="rcreceb-resumo">—</strong></div><div class="req-head-box"><span class="req-head-lbl">Data</span><span id="rcreceb-data">—</span></div></div>
+    <div class="fld"><label>Comprador / responsável</label><input type="text" id="rcreceb-comprador" placeholder="Nome do responsável"></div>
+    <div class="fld"><label>Nota fiscal</label><input type="text" id="rcreceb-nf" placeholder="Número da NF (opcional)"></div>
+    <div class="fld"><label>Observação</label><textarea id="rcreceb-obs" placeholder="Anotações sobre o recebimento"></textarea></div>
+    <button class="btn btn-g" onclick="salvarRecebRC()">✓ Confirmar recebimento</button><button class="btn btn-s" onclick="closeRCreceb()">Cancelar</button>
+  </div>
 </div>
 
 <!-- MODAL APONTAMENTO -->
@@ -252,11 +364,11 @@
     </div>
 
     <div class="fld">
-      <label>Status da entrega</label>
+      <label>Classificação da entrega</label>
       <div class="status-pills">
-        <button class="st-pill on-g" id="st-entregue" onclick="setStatusEntrega('Entregue')">✅ Entregue</button>
-        <button class="st-pill" id="st-parcial" onclick="setStatusEntrega('Parcial')">⚠️ Parcial</button>
-        <button class="st-pill" id="st-devolvido" onclick="setStatusEntrega('Devolvido')">↩️ Devolvido</button>
+        <button class="st-pill" id="st-entregue" onclick="setStatusEntrega('Concluída')">✅ Concluída</button>
+        <button class="st-pill on-a" id="st-parcial" onclick="setStatusEntrega('Parcial')">⚠️ Parcial</button>
+        <button class="st-pill" id="st-devolvido" onclick="setStatusEntrega('Devolução')">↩️ Devolução</button>
       </div>
     </div>
 
@@ -291,7 +403,7 @@
     </div>
 
     <div class="fld">
-      <label>Assinatura do cliente</label>
+      <label>Assinatura do cliente (opcional)</label>
       <div class="sig-pad" id="sig-pad-cli">
         <canvas id="sig-canvas-cli"></canvas>
         <div class="sig-hint" id="sig-hint-cli"><span style="font-size:18px">✍️</span><span style="font-size:11px">Quem recebeu assina aqui</span></div>
@@ -307,7 +419,34 @@
   </div>
 </div>
 
+<!-- MODAL ASSINATURA CLIENTE PENDENTE -->
+<div class="ov" id="modal-assinatura" onclick="ovClickAssinatura(event)">
+  <div class="mdl" id="mdl-assinatura">
+    <div class="mhnd"></div>
+    <div class="mtit">Coletar assinatura</div>
+    <div class="msub">Assinatura do cliente para entrega pendente</div>
+
+    <div id="as-info" class="signature-summary"></div>
+
+    <div class="fld">
+      <label>Assinatura do cliente</label>
+      <div class="sig-pad sig-pad-lg" id="sig-pad-cli-pendente">
+        <canvas id="sig-canvas-cli-pendente"></canvas>
+        <div class="sig-hint" id="sig-hint-cli-pendente"><span style="font-size:18px">✍️</span><span style="font-size:11px">Quem recebeu assina aqui</span></div>
+      </div>
+      <div class="sig-btns">
+        <div class="sig-btn" onclick="clearSig('cli-pendente')">🗑 Limpar</div>
+        <div class="sig-btn ok-amber" onclick="confirmSig('cli-pendente')">✓ Confirmar</div>
+      </div>
+    </div>
+
+    <button class="btn btn-g" id="as-save" onclick="salvarAssinaturaCliente()">✓ Salvar assinatura</button>
+    <button class="btn btn-s" onclick="closeAssinatura()">Cancelar</button>
+  </div>
+</div>
+
 <!-- Scripts (módulos separados) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js" defer></script>
 <script type="module" src="js/firebase.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
