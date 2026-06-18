@@ -1,6 +1,6 @@
 // ===== CONFIGURAÇÃO DO FIREBASE =====
 import { initializeApp } from "./vendor/firebase/firebase-app.js";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, onSnapshot, addDoc, query, orderBy, getDocs, runTransaction, deleteDoc } from "./vendor/firebase/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, onSnapshot, addDoc, query, orderBy, getDocs, runTransaction, deleteDoc, writeBatch } from "./vendor/firebase/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD-whKWwiLo_D43XDWqAE275HollpG1QSA",
@@ -24,5 +24,5 @@ try {
 // Exporta tudo que vai ser usado pelos outros módulos
 window.firebaseDB = {
   db, collection, doc, setDoc, onSnapshot, addDoc,
-  query, orderBy, getDocs, runTransaction, deleteDoc
+  query, orderBy, getDocs, runTransaction, deleteDoc, writeBatch
 };

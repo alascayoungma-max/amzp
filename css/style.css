@@ -225,6 +225,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 .nav-badge{position:absolute;top:3px;right:4px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:var(--red);color:#fff;font:700 9px/16px var(--mono);text-align:center}
 .req-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:13px;margin-bottom:8px;cursor:pointer;transition:border-color .15s,transform .15s}
 .req-card:active{border-color:var(--border2);background:var(--card2)}
+.req-card-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.req-delete{width:28px;height:28px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--redtxt);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px}
+.req-delete:hover{border-color:var(--red);background:var(--redbg)}
 .req-head{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
 .req-head-box{display:flex;flex-direction:column;gap:3px;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:9px 11px;font-size:12px;color:var(--text)}
 .req-head-box.rm{border-color:var(--green)}
@@ -249,6 +252,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14
 .ival.regular{color:var(--text2);font-family:var(--font);font-weight:500;text-align:right}
 .req-warning{background:var(--amberbg);border:1px solid var(--amber);border-radius:8px;padding:9px 10px;margin-top:8px;font-size:11px;color:var(--ambertxt)}
 .btn.compact{margin-top:0;padding:10px}
+.btn-danger{margin-top:10px;background:var(--redbg);border:1px solid var(--red);color:var(--redtxt)}
 .signature-field{margin-top:16px}
 .req-detail{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .req-detail strong{display:block;font-size:13px}

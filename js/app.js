@@ -8,7 +8,7 @@ function aguardaFirebase(){
 }
 
 await aguardaFirebase();
-const { db, collection, doc, setDoc, onSnapshot, addDoc, query, orderBy, getDocs, runTransaction, deleteDoc } = window.firebaseDB;
+const { db, collection, doc, setDoc, onSnapshot, addDoc, query, orderBy, getDocs, runTransaction, deleteDoc, writeBatch } = window.firebaseDB;
 
 // ===== DADOS INICIAIS =====
 const PEDIDOS_BASE=[
@@ -760,7 +760,7 @@ function reqCardHTML(req){
   return `<article class="req-card" onclick="abrirReq('${req.docId}')">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:5px">
       <div><span class="cid">${escHtml(req.numero)}</span><div style="font-size:13px;font-weight:700;margin-top:2px">${escHtml(req.solicitante||'—')}${req.setor?' · '+escHtml(req.setor):''}</div></div>
-      ${reqStatusBadge(req.status)}
+      <div class="req-card-actions">${reqStatusBadge(req.status)}<button class="req-delete" type="button" title="Excluir ${escHtml(req.numero)}" aria-label="Excluir ${escHtml(req.numero)}" onclick="event.stopPropagation();excluirRequisicao('${req.docId}')">🗑</button></div>
     </div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:6px">${escHtml(resumo||'—')}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding-top:7px;border-top:1px solid var(--border)"><span style="font-size:11px;color:var(--text3)">${itens.length} ${itens.length===1?'item':'itens'}</span><span class="apt">${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span></div>
@@ -891,7 +891,7 @@ function verRM(id){
   const itens=(req.itens||[]).map(item=>`<div class="item-row req-detail"><div><strong>${escHtml(item.material)}</strong><small>Pedido: ${item.qtd} ${escHtml(item.unid)}</small></div>${itemStatusBadge(item)}</div>`).join('');
   const assinaturas=[sigThumb('Solicitante',req.sigSolicitante),sigThumb('Almoxarife',req.sigAlmox),sigThumb('Recebedor',req.sigRecebedor)].filter(Boolean).join('');
   const rcInfo=req.rcNumero?`<div class="gap-card"><span>🛒 RC de compra gerada</span><strong>${escHtml(req.rcNumero)}</strong></div>`:req.temPendenciaCompra?`<button class="btn btn-b" style="margin-top:14px" onclick="gerarRCdeRM('${req.docId}')">🛒 Gerar RC das faltas</button>`:'';
-  document.getElementById('ver-body').innerHTML=`<div class="req-detail-head">${reqStatusBadge(req.status)}${req.obs?`<p>📝 ${escHtml(req.obs)}</p>`:''}</div>${itens}${assinaturas?`<div class="sig-thumbs">${assinaturas}</div>`:''}${rcInfo}`;
+  document.getElementById('ver-body').innerHTML=`<div class="req-detail-head">${reqStatusBadge(req.status)}${req.obs?`<p>📝 ${escHtml(req.obs)}</p>`:''}</div>${itens}${assinaturas?`<div class="sig-thumbs">${assinaturas}</div>`:''}${rcInfo}<button class="btn btn-danger" onclick="excluirRequisicao('${req.docId}')">🗑 Excluir requisição</button>`;
   document.getElementById('modal-ver').classList.add('on');document.getElementById('mdl-ver').scrollTop=0;
 }
 window.verRM=verRM;window.closeVer=()=>document.getElementById('modal-ver').classList.remove('on');window.ovClickVer=e=>{if(e.target.id==='modal-ver')window.closeVer();};
@@ -997,10 +997,33 @@ function verRC(id){
     actions=`${req.sigSolicitante?`<div class="sig-thumbs">${sigThumb('Solicitante',req.sigSolicitante)}</div>`:''}<button class="btn btn-b" style="margin-top:12px" onclick="baixarRCPDF('${req.docId}')">📄 Baixar / enviar PDF</button>`;
     actions+=req.status==='recebida'?`<div class="receipt-ok">📥 Recebido por ${escHtml(req.comprador||'—')}${req.notaFiscal?' · NF '+escHtml(req.notaFiscal):''}</div>`:`<button class="btn btn-g" style="margin-top:8px" onclick="closeVer();openRecebRC('${req.docId}')">📥 Lançar recebimento</button>`;
   }
-  document.getElementById('ver-body').innerHTML=`<div class="req-detail-head">${reqStatusBadge(req.status)}${req.origemRM?`<p>Gerada automaticamente das faltas da ${escHtml(req.origemRM)}</p>`:''}</div>${itens}${actions}`;
+  document.getElementById('ver-body').innerHTML=`<div class="req-detail-head">${reqStatusBadge(req.status)}${req.origemRM?`<p>Gerada automaticamente das faltas da ${escHtml(req.origemRM)}</p>`:''}</div>${itens}${actions}<button class="btn btn-danger" onclick="excluirRequisicao('${req.docId}')">🗑 Excluir requisição</button>`;
   document.getElementById('modal-ver').classList.add('on');document.getElementById('mdl-ver').scrollTop=0;
 }
 window.verRC=verRC;
+
+let excluindoReq=false;
+async function excluirRequisicao(id){
+  if(excluindoReq)return;
+  const req=requisicoes.find(item=>item.docId===id);if(!req)return;
+  const rcsVinculadas=req.tipo==='RM'?requisicoes.filter(item=>item.tipo==='RC'&&item.origemRMId===id):[];
+  const avisoVinculo=rcsVinculadas.length?`\n\nA ${rcsVinculadas.map(item=>item.numero).join(', ')} vinculada também será excluída.`:'';
+  if(!window.confirm(`Excluir definitivamente ${req.numero}?${avisoVinculo}\n\nEsta ação não pode ser desfeita.`))return;
+  excluindoReq=true;
+  try{
+    const batch=writeBatch(db);
+    batch.delete(doc(db,'requisicoes',id));
+    rcsVinculadas.forEach(item=>batch.delete(doc(db,'requisicoes',item.docId)));
+    if(req.tipo==='RC'&&req.origemRMId&&requisicoes.some(item=>item.docId===req.origemRMId)){
+      batch.set(doc(db,'requisicoes',req.origemRMId),{rcGerada:false,rcNumero:null,temPendenciaCompra:true},{merge:true});
+    }
+    await batch.commit();
+    ['modal-ver','modal-rm','modal-almox','modal-receb','modal-rc','modal-rcreceb'].forEach(modalId=>document.getElementById(modalId)?.classList.remove('on'));
+    showToast(`🗑 ${req.numero} excluída${rcsVinculadas.length?' com a RC vinculada':''}`);
+  }catch(error){showToast(`⚠️ Erro ao excluir: ${error.message}`);}
+  finally{excluindoReq=false;}
+}
+window.excluirRequisicao=excluirRequisicao;
 
 async function darkenSig(dataURL){
   if(!dataURL)return '';
