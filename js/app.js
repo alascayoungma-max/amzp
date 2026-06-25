@@ -562,6 +562,7 @@ window.salvarEntrega=async function(){
     await saveEntrega(ent);
     window.closeEntrega();
     showToast(statusAssinatura==='Aguardando assinatura' ? '✅ Entrega '+romaneio+' salva. Assinatura pendente.' : '✅ Entrega '+romaneio+' registrada!');
+    await compartilharPDFEntrega(ent);
   } catch(err) {
     showToast('⚠️ Erro ao salvar: '+err.message);
   } finally {
@@ -656,6 +657,7 @@ function rEntregas(){
         <div class="delivery-badges">${badgeClassificacaoEntrega(classif)}${badgeAssinaturaEntrega(e)}</div>
         <div class="delivery-buttons">
           ${pendente?`<button class="mini-action" onclick="openColetarAssinatura('${e.docId}')">Coletar assinatura</button>`:''}
+          <button class="icon-action" onclick="baixarEntregaPDF('${e.docId}')" title="Baixar / enviar PDF" aria-label="Baixar / enviar PDF">📄</button>
           <button class="icon-action danger" onclick="excluirEntrega('${e.docId}','${e.romaneio||''}')" title="Excluir">🗑️</button>
         </div>
       </div>
@@ -1060,6 +1062,67 @@ async function compartilharPDF(rc){
 }
 window.compartilharPDF=compartilharPDF;
 window.baixarRCPDF=id=>{const rc=requisicoes.find(req=>req.docId===id);if(rc)compartilharPDF(rc);};
+
+async function compartilharPDFEntrega(ent){
+  if(!ent)return;
+  if(!window.jspdf)showToast('⏳ Preparando gerador de PDF...');
+  try{await carregarBibliotecaPDF();}catch{showToast('⚠️ Não foi possível carregar o gerador de PDF');return;}
+  try{
+    const {jsPDF}=window.jspdf;const pdf=new jsPDF({unit:'mm',format:'a4'});const W=210,M=16;let y=18;
+    const safe=value=>{const text=String(value??'').trim();return text||'-';};
+    const ensureSpace=height=>{if(y+height>282){pdf.addPage();y=20;}};
+    const addInfo=(label,value)=>{
+      ensureSpace(12);
+      pdf.setFont(undefined,'bold');pdf.setTextColor(45);pdf.text(`${label}:`,M,y);
+      pdf.setFont(undefined,'normal');pdf.setTextColor(60);
+      const lines=pdf.splitTextToSize(safe(value),W-2*M-50);
+      pdf.text(lines,M+50,y);y+=Math.max(6,lines.length*5+1);
+    };
+    const numero=safe(ent.romaneio||'Entrega');
+    const dt=new Date(ent.timestamp||Date.now());
+    const antes=qtdEmEmpresaAntesEntrega(ent);
+    const depois=qtdEmEmpresaDepoisEntrega(ent);
+    pdf.setFontSize(9);pdf.setTextColor(120);pdf.text('Sistema AMZP - Gestão Industrial',M,y);
+    pdf.setFont(undefined,'bold');pdf.setFontSize(18);pdf.setTextColor(20);pdf.text('ROMANEIO DE ENTREGA',M,y+10);
+    pdf.setFontSize(13);pdf.setTextColor(45,95,170);pdf.text(numero,W-M,y+10,{align:'right'});y+=26;
+    pdf.setFont(undefined,'normal');pdf.setFontSize(10);pdf.setTextColor(60);
+    pdf.text(`Data: ${dt.toLocaleString('pt-BR')}`,M,y);
+    pdf.text(`Status: ${classificacaoEntrega(ent)}`,W-M,y,{align:'right'});y+=10;
+    pdf.setFillColor(238);pdf.rect(M,y-5,W-2*M,8,'F');pdf.setFont(undefined,'bold');pdf.setTextColor(40);pdf.text('DADOS DA ENTREGA',M+2,y);y+=10;
+    pdf.setFontSize(10);
+    addInfo('Pedido',ent.pedidoId?`OP #${ent.pedidoId}`:'-');
+    addInfo('Cliente',ent.cliente);
+    addInfo('Produto',ent.produto);
+    addInfo('Quantidade',fmtQtd(ent.qtd,ent.unid));
+    addInfo('Na empresa antes',fmtQtd(antes,ent.unid));
+    addInfo('Na empresa depois',fmtQtd(depois,ent.unid));
+    addInfo('Entregador',ent.entregador);
+    addInfo('Conferente',ent.conferente);
+    addInfo('Veículo',ent.veiculo);
+    addInfo('Destino',ent.destino);
+    addInfo('Assinatura recebedor',statusAssinaturaEntrega(ent));
+    if(ent.obs)addInfo('Observação',ent.obs);
+    if(ent.foto){
+      ensureSpace(48);y+=4;pdf.setFont(undefined,'bold');pdf.setTextColor(45);pdf.text('Foto do comprovante',M,y);y+=5;
+      try{const tipoFoto=String(ent.foto).startsWith('data:image/png')?'PNG':'JPEG';pdf.addImage(ent.foto,tipoFoto,M,y,52,36);}catch{}
+      y+=42;
+    }
+    ensureSpace(36);y+=16;
+    const sigConf=await darkenSig(ent.sigConf);
+    const sigCli=await darkenSig(ent.sigCli);
+    if(sigConf){try{pdf.addImage(sigConf,'PNG',M,y-14,56,16);}catch{}}
+    if(sigCli){try{pdf.addImage(sigCli,'PNG',W-M-70,y-14,56,16);}catch{}}
+    pdf.setDrawColor(140);pdf.line(M,y,M+70,y);pdf.line(W-M-70,y,W-M,y);
+    pdf.setFontSize(9);pdf.setTextColor(70);pdf.text('Assinatura do conferente',M,y+5);
+    pdf.text(sigCli?'Assinatura do recebedor':'Assinatura do recebedor pendente',W-M-70,y+5);
+    pdf.setFontSize(8);pdf.setTextColor(130);pdf.text('Documento gerado pelo Sistema AMZP',M,287);
+    const blob=pdf.output('blob');const base=String(ent.romaneio||'Entrega').replace(/[#\s]+/g,'').replace(/[^\w.-]+/g,'_')||'Entrega';const filename=`Entrega_${base}.pdf`;const file=new File([blob],filename,{type:'application/pdf'});
+    if(navigator.canShare?.({files:[file]})){try{await navigator.share({files:[file],title:`Entrega ${numero}`,text:`Romaneio de entrega ${numero}`});return;}catch(error){if(error?.name==='AbortError')return;}}
+    const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);showToast('📄 PDF baixado');
+  }catch(error){showToast(`⚠️ Erro ao gerar PDF: ${error.message}`);}
+}
+window.compartilharPDFEntrega=compartilharPDFEntrega;
+window.baixarEntregaPDF=id=>{const ent=entregas.find(item=>item.docId===id);if(ent)compartilharPDFEntrega(ent);};
 
 function openRecebRC(id){
   const req=requisicoes.find(r=>r.docId===id);if(!req)return;rcRecebId=id;
